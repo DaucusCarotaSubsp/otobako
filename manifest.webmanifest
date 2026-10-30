@@ -1,0 +1,16 @@
+{
+  "name": "Otobako",
+  "short_name": "Otobako",
+  "description": "mp3、曲情報、ジャケット画像、LRC歌詞を管理して再生するミュージックプレイヤー",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eceef3",
+  "theme_color": "#ff6a52",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
