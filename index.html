@@ -225,6 +225,10 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .ka-set input[type=range]{width:100%;accent-color:var(--accent)}
 .ka-msg{font-size:12px;color:var(--danger);line-height:1.6}
 .ka-msg[hidden]{display:none}
+.ka-key{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ka-key .kl{font-weight:700;font-size:13px;margin-right:2px}
+.ka-key .kb{border:1px solid var(--line);width:36px;height:36px;font-size:20px;line-height:1;color:var(--fg)}
+.ka-key b{min-width:3.2em;text-align:center;font:500 16px var(--mono)}
 .ka-vc{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .ka-vc .btn[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .ka-vc label{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim);flex:1;min-width:160px}
@@ -408,6 +412,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
       <div class="ka-cv-wrap"><canvas id="kaCv"></canvas></div>
     </div>
     <div class="ka-ctl">
+      <div class="ka-key"><span class="kl">キー</span><button class="icon-btn kb" id="kaKeyDn" type="button" aria-label="キーを下げる">−</button><b id="kaKeyV">±0</b><button class="icon-btn kb" id="kaKeyUp" type="button" aria-label="キーを上げる">＋</button><button class="btn sm ghost" id="kaKeyRs" type="button">元のキー</button><span class="ka-note">曲とお手本のキーを変えます（速さは変わりません）</span></div>
       <div class="ka-tr">
         <button class="icon-btn" id="kaPlay" type="button" aria-label="再生"></button>
         <span class="tm" id="kaT0">0:00</span><input type="range" id="kaSeek" min="0" max="1000" value="0" aria-label="再生位置"><span class="tm" id="kaT1">0:00</span>
@@ -1876,7 +1881,7 @@ new ResizeObserver(() => document.documentElement.style.setProperty('--barh', $(
 /* ---------- karaoke ---------- */
 window.__ka = null;
 const KA = { open: false, stream: null, ctx: null, an: null, src: null, mon: null, buf: null, d: null, raf: 0, fc: 0,
-  cfg: { clar: 0.5, dthr: 0.35 }, hist: [], ref: null, shift: 0, dsamp: [], sc: { n: 0, hit: 0 }, anTok: 0, analyzing: false, center: 60, minM: null, maxM: null, last: null, lyrSrc: null, words: null, idx: -2, cEl: null, wk: null, lv: 0, med: [] };
+  key: 0, cfg: { clar: 0.5, dthr: 0.35 }, hist: [], ref: null, shift: 0, dsamp: [], sc: { n: 0, hit: 0 }, anTok: 0, analyzing: false, center: 60, minM: null, maxM: null, last: null, lyrSrc: null, words: null, idx: -2, cEl: null, wk: null, lv: 0, med: [] };
 window.__ka = KA;
 const NOTE_N = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 const noteName = m => { const r = Math.round(m); return NOTE_N[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1); };
@@ -1972,7 +1977,7 @@ function kaDraw() {
   const past = 4, fut = 6, pps = pw / (past + fut), playX = x0 + past * pps, now = audio.currentTime || 0;
   // key range follows the singer's voice
   let tgt = null;
-  if (KA.last) tgt = KA.last.m; else if (KA.ref) { const n = refAt(now + 0.3) || refAt(now + 1.5); if (n) tgt = n.m + KA.shift; }
+  if (KA.last) tgt = KA.last.m; else if (KA.ref) { const n = refAt(now + 0.3) || refAt(now + 1.5); if (n) tgt = n.m + KA.shift + KA.key; }
   if (tgt !== null) KA.center += (tgt - KA.center) * 0.03;
   const span = 24, lo = KA.center - span / 2, hi = KA.center + span / 2, ph = H - top - 4 * dpr;
   const Y = m => top + (hi - m) / span * ph, X = t => playX + (t - now) * pps;
@@ -2004,7 +2009,7 @@ function kaDraw() {
     while (a < b) { const mid = (a + b) >> 1; if (ns[mid].t1 < now - past - 0.2) a = mid + 1; else b = mid; }
     g.save(); g.beginPath(); g.rect(x0, top - 6 * dpr, pw, H); g.clip();
     for (let i = a; i < ns.length && ns[i].t0 <= now + fut + 0.2; i++) {
-      const n = ns[i], xa = X(n.t0), xb = Math.max(X(n.t1), xa + 3 * dpr), y = Y(n.m + KA.shift), on = n.t0 <= now && n.t1 >= now;
+      const n = ns[i], xa = X(n.t0), xb = Math.max(X(n.t1), xa + 3 * dpr), y = Y(n.m + KA.shift + KA.key), on = n.t0 <= now && n.t1 >= now;
       g.fillStyle = '#2fa89d'; g.globalAlpha = on ? 0.95 : 0.55;
       g.beginPath(); g.roundRect ? g.roundRect(xa, y - bh / 2, xb - xa, bh, Math.min(bh / 2, 6 * dpr)) : g.rect(xa, y - bh / 2, xb - xa, bh); g.fill();
     }
@@ -2166,9 +2171,9 @@ function refAt(t) {
 }
 function kaScore(ta, m) {
   const n = refAt(ta); if (!n) return;
-  KA.dsamp.push(m - n.m); if (KA.dsamp.length > 80) KA.dsamp.shift();
+  KA.dsamp.push(m - n.m - KA.key); if (KA.dsamp.length > 80) KA.dsamp.shift();
   if (KA.dsamp.length >= 30 && (KA.fc & 31) === 0) { const s = [...KA.dsamp].sort((a, b) => a - b), md = s[s.length >> 1]; KA.shift = 12 * Math.round(md / 12); }
-  let d = m - (n.m + KA.shift); d -= 12 * Math.round(d / 12);
+  let d = m - (n.m + KA.shift + KA.key); d -= 12 * Math.round(d / 12);
   KA.sc.n++; if (Math.abs(d) <= 1) KA.sc.hit++;
 }
 function kaSetRef(u8, hop) {
@@ -2256,9 +2261,11 @@ function guideSync(force) {
   const base = audio.playbackRate || 1;
   if (audio.paused) { if (!GD.el.paused) GD.el.pause(); GD.el.playbackRate = base; if (force) { try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000); } catch (e) {} } return; }
   if (GD.el.paused) GD.el.play().catch(() => {});
-  const e = GD.el.currentTime - (audio.currentTime + GD.off / 1000);
-  if (force || Math.abs(e) > 0.25) { try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000 + 0.03 * base); } catch (er) {} GD.el.playbackRate = base; return; }
-  GD.el.playbackRate = Math.abs(e) < 0.006 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
+  const raw = GD.el.currentTime - (audio.currentTime + GD.off / 1000);
+  GD.ea = force || GD.ea === undefined ? raw : GD.ea * 0.75 + raw * 0.25;   // the graph hands out currentTime in coarse steps; average it
+  const e = GD.ea;
+  if (force || Math.abs(raw) > 0.25) { GD.ea = undefined; try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000 + 0.03 * base); } catch (er) {} GD.el.playbackRate = base; return; }
+  GD.el.playbackRate = Math.abs(e) < 0.012 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
 }
 function guideOff() {
   GD.on = false; try { GD.el.pause(); } catch (e) {} if (GD.url) { GD.el.removeAttribute('src'); URL.revokeObjectURL(GD.url); GD.url = null; }
@@ -2268,14 +2275,15 @@ async function guideOn() {
   const t = curTrack(); if (!t) return;
   const row = q('SELECT data FROM vocal WHERE track_id = ?', [t.id])[0]; if (!row) { kaMsg('先に「お手本を解析」を実行してください。'); return; }
   if (GD.url) URL.revokeObjectURL(GD.url);
-  GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; GD.el.volume = $('#kaGuideVol').value / 100; GD.on = true;
+  try { await audioGraph(); guideGraph(); } catch (e) { kaMsg('お手本ボーカルを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
+  GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true;
   const b = $('#kaGuide'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'お手本ボーカルを流す：オン';
   try { await GD.el.play(); } catch (e) { kaMsg('お手本ボーカルを再生できませんでした。'); }
   if (audio.paused) GD.el.pause(); guideSync(true);
 }
 ['play', 'pause', 'seeked', 'ratechange'].forEach(ev => audio.addEventListener(ev, () => guideSync(ev === 'seeked')));
 $('#kaGuide').addEventListener('click', () => GD.on ? guideOff() : guideOn());
-$('#kaGuideVol').addEventListener('input', e => { GD.el.volume = e.target.value / 100; });
+$('#kaGuideVol').addEventListener('input', e => { if (GD.gain) GD.gain.gain.value = e.target.value / 100; });
 $('#kaGuideOff').value = GD.off; $('#kaGuideOT').textContent = GD.off;
 $('#kaGuideOff').addEventListener('input', e => { GD.off = +e.target.value; $('#kaGuideOT').textContent = GD.off; try { localStorage.setItem('otobako-guide-off', GD.off); } catch (er) {} guideSync(true); });
 
@@ -2283,7 +2291,7 @@ function kaUiVocal(has) {
   $('#kaGuide').hidden = !has; $('#kaGuideS').hidden = !has; $('#kaGuideO').hidden = !has; $('#kaReVoc').hidden = !has; $('#kaVocStr').hidden = !has && false;
 }
 function kaLoadRef() {
-  KA.anTok++; KA.analyzing = false; guideOff(); const t = curTrack(); KA.refId = t ? t.id : null;
+  KA.anTok++; KA.analyzing = false; guideOff(); const t = curTrack(); KA.refId = t ? t.id : null; if (KA.key) keySet(0);
   let row = null, vr = null; try { if (t) { row = q('SELECT hop, data FROM melody WHERE track_id = ?', [t.id])[0]; vr = q('SELECT length(data) AS n FROM vocal WHERE track_id = ?', [t.id])[0]; } } catch (e) {}
   kaSetRef(row ? row.data : null, row ? row.hop : 0); kaUiVocal(!!vr); $('#kaRefBtn').disabled = !t;
   if (vr && !row) $('#kaRefSt').textContent = '抽出済みのボーカル音声があります（' + (vr.n / 1048576).toFixed(1) + ' MB）。音程を解析します。';
@@ -2347,22 +2355,79 @@ $('#kaRefBtn').addEventListener('click', () => kaAnalyze(false));
 $('#kaReVoc').addEventListener('click', () => kaAnalyze(true));
 
 /* vocal cut: cancel what sits in the centre of the stereo image (usually the lead vocal), keep the bass */
-const VC = { ctx: null, wet: null, dry: null, on: false, anO: null, anW: null, timer: 0, warned: false };
+const VC = { ctx: null, ready: false, initP: null, ps: null, anP: null, wet: null, dry: null, on: false, anO: null, anW: null, timer: 0, warned: false };
 window.__vc = VC;
-function vcInit() {
-  const AC = window.AudioContext || window.webkitAudioContext, c = new AC(); VC.ctx = c;
-  const src = c.createMediaElementSource(audio), sp = c.createChannelSplitter(2);
-  const inv = c.createGain(); inv.gain.value = -1;
-  const side = c.createGain(), mid = c.createGain(); mid.gain.value = 0.5;
-  src.connect(sp); sp.connect(side, 0); sp.connect(inv, 1); inv.connect(side);
-  sp.connect(mid, 0); sp.connect(mid, 1);
-  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 140; mid.connect(lp);
-  VC.wet = c.createGain(); VC.dry = c.createGain(); VC.wet.gain.value = 0; VC.dry.gain.value = 1;
-  side.connect(VC.wet); lp.connect(VC.wet); src.connect(VC.dry);
-  VC.wet.connect(c.destination); VC.dry.connect(c.destination);
-  VC.anO = c.createAnalyser(); VC.anW = c.createAnalyser(); VC.anR = c.createAnalyser(); VC.anO.fftSize = VC.anW.fftSize = VC.anR.fftSize = 2048;
-  src.connect(VC.anO); side.connect(VC.anW); sp.connect(VC.anR, 1);
+const PS_SRC = `
+class OtobakoPS extends AudioWorkletProcessor {
+  static get parameterDescriptors() { return [{ name: 'semi', defaultValue: 0, minValue: -12, maxValue: 12, automationRate: 'k-rate' }]; }
+  constructor() { super(); this.W = Math.round(sampleRate * 0.055); let n = 1; while (n < this.W * 2 + 8) n <<= 1; this.N = n; this.buf = [new Float32Array(n), new Float32Array(n)]; this.w = 0; this.ph = 0; }
+  process(inputs, outputs, params) {
+    const inp = inputs[0], out = outputs[0]; if (!out || !out.length) return true;
+    const len = out[0].length, N = this.N, mask = N - 1, W = this.W, nch = Math.min(out.length, 2);
+    const semi = params.semi[0], r = Math.pow(2, semi / 12), dp = (1 - r) / W;
+    for (let i = 0; i < len; i++) {
+      const w = this.w; let ph = this.ph;
+      const ph2 = ph + 0.5 >= 1 ? ph - 0.5 : ph + 0.5, d1 = ph * W, d2 = ph2 * W;
+      const g1 = 0.5 - 0.5 * Math.cos(2 * Math.PI * ph), g2 = 0.5 - 0.5 * Math.cos(2 * Math.PI * ph2);
+      for (let c = 0; c < nch; c++) {
+        const x = inp && inp.length ? inp[Math.min(c, inp.length - 1)][i] : 0, bf = this.buf[c]; bf[w & mask] = x;
+        if (semi === 0) { out[c][i] = x; continue; }
+        let p1 = w - d1, p2 = w - d2; const i1 = Math.floor(p1), f1 = p1 - i1, i2 = Math.floor(p2), f2 = p2 - i2;
+        const s1 = bf[i1 & mask] * (1 - f1) + bf[(i1 + 1) & mask] * f1, s2 = bf[i2 & mask] * (1 - f2) + bf[(i2 + 1) & mask] * f2;
+        out[c][i] = s1 * g1 + s2 * g2;
+      }
+      for (let c = nch; c < out.length; c++) out[c][i] = out[0][i];
+      ph += dp; if (ph >= 1) ph -= 1; else if (ph < 0) ph += 1; this.ph = ph; this.w = (w + 1) & mask;
+    }
+    return true;
+  }
 }
+registerProcessor('otobako-ps', OtobakoPS);`;
+async function audioGraph() {
+  if (VC.ready) { if (VC.ctx.state === 'suspended') VC.ctx.resume().catch(() => {}); return; }
+  if (VC.initP) return VC.initP;
+  const AC = window.AudioContext || window.webkitAudioContext, c = new AC(); VC.ctx = c;
+  try { c.resume(); } catch (e) {}   // must start inside the tap that asked for it (iOS)
+  VC.initP = (async () => {
+    if (!c.audioWorklet) throw new Error('AudioWorklet非対応');
+    const url = URL.createObjectURL(new Blob([PS_SRC], { type: 'text/javascript' }));
+    try { await c.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+    const src = c.createMediaElementSource(audio), sp = c.createChannelSplitter(2);
+    const inv = c.createGain(); inv.gain.value = -1;
+    const side = c.createGain(), mid = c.createGain(); mid.gain.value = 0.5;
+    src.connect(sp); sp.connect(side, 0); sp.connect(inv, 1); inv.connect(side);
+    sp.connect(mid, 0); sp.connect(mid, 1);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 140; mid.connect(lp);
+    VC.wet = c.createGain(); VC.dry = c.createGain(); VC.wet.gain.value = 0; VC.dry.gain.value = 1;
+    side.connect(VC.wet); lp.connect(VC.wet); src.connect(VC.dry);
+    const mix = c.createGain(); VC.wet.connect(mix); VC.dry.connect(mix);
+    VC.ps = new AudioWorkletNode(c, 'otobako-ps', { outputChannelCount: [2] }); mix.connect(VC.ps); VC.ps.connect(c.destination);
+    VC.anP = c.createAnalyser(); VC.anP.fftSize = 4096; VC.ps.connect(VC.anP);
+    VC.anO = c.createAnalyser(); VC.anW = c.createAnalyser(); VC.anR = c.createAnalyser(); VC.anO.fftSize = VC.anW.fftSize = VC.anR.fftSize = 2048;
+    src.connect(VC.anO); side.connect(VC.anW); sp.connect(VC.anR, 1);
+    VC.ready = true; keyApply();
+  })();
+  try { await VC.initP; } catch (e) { VC.initP = null; try { c.close(); } catch (er) {} VC.ctx = null; throw e; }
+}
+// the guide vocal goes through the same context: pitch shift + a real gain node (iOS ignores element.volume)
+function guideGraph() {
+  if (GD.src) return; const c = VC.ctx;
+  GD.src = c.createMediaElementSource(GD.el); GD.gain = c.createGain(); GD.ps = new AudioWorkletNode(c, 'otobako-ps', { outputChannelCount: [2] });
+  GD.src.connect(GD.gain); GD.gain.connect(GD.ps); GD.ps.connect(c.destination); keyApply();
+}
+function keyApply() {
+  const s = KA.key; $('#kaKeyV').textContent = s === 0 ? '±0' : (s > 0 ? '+' : '−') + Math.abs(s);
+  for (const n of [VC.ps, GD.ps]) if (n) n.parameters.get('semi').value = s;
+}
+async function keySet(v) {
+  v = Math.max(-12, Math.min(12, v)); if (v === KA.key) return;
+  KA.key = v; KA.sc = { n: 0, hit: 0 }; KA.dsamp = []; kaMsg('');
+  if (v !== 0 && !VC.ready) { try { await audioGraph(); } catch (e) { KA.key = 0; keyApply(); kaMsg('キー変更を開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。この環境は音声処理（AudioWorklet）に対応していない可能性があります。'); return; } }
+  keyApply();
+}
+$('#kaKeyDn').addEventListener('click', () => keySet(KA.key - 1));
+$('#kaKeyUp').addEventListener('click', () => keySet(KA.key + 1));
+$('#kaKeyRs').addEventListener('click', () => keySet(0));
 function vcApply() {
   if (!VC.ctx) return; const s = VC.on ? $('#kaVcAmt').value / 100 : 0, t = VC.ctx.currentTime;
   VC.wet.gain.setTargetAtTime(s, t, 0.03); VC.dry.gain.setTargetAtTime(1 - s, t, 0.03);
@@ -2380,8 +2445,7 @@ function vcWatch() {
 }
 async function vcToggle() {
   try {
-    if (!VC.ctx) vcInit();
-    if (VC.ctx.state === 'suspended') await VC.ctx.resume();
+    await audioGraph();
   } catch (e) { kaMsg('ボーカルカットを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
   VC.on = !VC.on; VC.warned = false; kaMsg('');
   const b = $('#kaVc'); b.setAttribute('aria-pressed', VC.on); b.textContent = 'ボーカルを消す：' + (VC.on ? 'オン' : 'オフ');
