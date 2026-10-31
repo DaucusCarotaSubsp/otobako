@@ -762,7 +762,7 @@ async function insertDraft(d) {
 function exportDb() {
   try {
     const fl = q('PRAGMA freelist_count')[0].freelist_count, ps = q('PRAGMA page_size')[0].page_size;
-    if (fl * ps > 4 * 1048576) run('VACUUM');
+    if (window.showSaveFilePicker && fl * ps > 4 * 1048576) run('VACUUM');
   } catch (e) {}
   const bytes = DB.export();
   DB.run('PRAGMA foreign_keys = ON');
@@ -780,7 +780,7 @@ function resetSession() {
 }
 function newDb() {
   const old = DB; openMemory(new SQL.Database()); if (old) old.close();
-  fileHandle = null; D.name = 'otobako.sqlite'; D.dirty = false; D.isStartup = false; clearTimeout(D.timer);
+  fileHandle = null; D.name = 'otobako.sqlite'; D.dirty = false; D.isStartup = false; D.src = null; clearTimeout(D.timer);
   resetSession(); updateDbUi();
 }
 async function loadDbFile(file, handle, startup) {
@@ -802,9 +802,22 @@ async function loadDbFile(file, handle, startup) {
     fileHandle = handle;
   }
   D.name = file.name; D.dirty = false; clearTimeout(D.timer);
-  D.isStartup = !!startup; if (startup) D.pending = null; else flagStartup(fileHandle);
+  D.isStartup = !!startup; D.src = file; D.srcVer = D.ver; if (startup) D.pending = null; else flagStartup(fileHandle);
   resetSession(); updateDbUi();
   toast(`${S.tracks.length}曲を読み込みました` + (fileHandle ? '。変更は自動で保存されます。' : '。'), 4000);
+}
+// iPhone/iPadのホーム画面アプリでは <a download> が動かないため、共有シート（「ファイルに保存」）を使う
+async function deliver(bytes, name) {
+  try {
+    if (navigator.canShare && navigator.share) {
+      const f = new File([bytes], name, { type: 'application/octet-stream' });
+      if (navigator.canShare({ files: [f] })) {
+        try { await navigator.share({ files: [f], title: name }); return true; }
+        catch (e) { if (e && e.name === 'AbortError') return false; }
+      }
+    }
+  } catch (e) {}
+  download(bytes, name); return true;
 }
 function download(bytes, name) {
   const a = h('a', { href: URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' })), download: name });
@@ -823,10 +836,11 @@ async function saveDb(auto) {
       const bytes = exportDb(), w = await fileHandle.createWritable(); await w.write(bytes); await w.close(); saved = true;
       if (!auto) toast('保存しました（以降は自動で保存されます）');
     } else if (!auto) {
-      download(exportDb(), D.name); saved = true; toast('ファイルをダウンロードしました');
+      opMark('ファイルの保存'); saved = await deliver(exportDb(), D.name); opClear();
+      if (saved) toast(navigator.canShare && navigator.share ? '共有シートで「ファイルに保存」を選んでください' : 'ファイルをダウンロードしました', 4500);
     }
     if (saved && D.ver === ver) D.dirty = false;
-  } catch (e) { toast('保存できませんでした。ファイルの権限や空き容量を確認してください。', 5000); }
+  } catch (e) { opClear(); toast('保存できませんでした（' + (e && (e.name || e.message) || '不明') + '）。', 6000); }
   finally { D.saving = false; updateDbUi(); }
 }
 function markDirty() {
@@ -843,19 +857,28 @@ function updateDbUi() {
   $('#dbAutoTx').textContent = D.isStartup ? (fileHandle ? '起動時にこのファイルを開く' : '起動時にこのライブラリを開く（端末内のコピー）') : '次回から起動時にこのライブラリを開く';
   $('#dbResume').hidden = !D.pending; $('#dbResumeName').textContent = D.pending ? '起動時: ' + D.pending.name : '';
 }
+// 途中でアプリが終了した（iOSのメモリ不足など）ことを次回起動時に知らせるための目印
+function opMark(n) { try { localStorage.setItem('otobako-op', n); } catch (e) {} }
+function opClear() { try { localStorage.removeItem('otobako-op'); } catch (e) {} }
+function crashNotice() {
+  try { const n = localStorage.getItem('otobako-op'); if (n) { localStorage.removeItem('otobako-op'); toast('前回は「' + n + '」の途中でアプリが終了しました（メモリ不足の可能性）。ライブラリが大きい場合は、曲数を分けてください。', 9000); } } catch (e) {}
+}
+// 変更がなければ読み込んだファイルをそのまま使い、書き出しによるメモリの二重消費を避ける
+function currentBlob() { return (D.src && D.srcVer === D.ver) ? D.src : new Blob([exportDb()], { type: 'application/vnd.sqlite3' }); }
 async function kv(mode, fn) {
   const db0 = await new Promise((res, rej) => { const r = indexedDB.open('otobako-startup', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   return new Promise((res, rej) => { const tx = db0.transaction('kv', mode); const rq = fn(tx.objectStore('kv')); tx.oncomplete = () => { db0.close(); res(rq && rq.result); }; tx.onerror = tx.onabort = () => { db0.close(); rej(tx.error); }; });
 }
 async function enableStartup() {
+  opMark('起動時に開く設定');
   try {
     if (!fileHandle && window.showSaveFilePicker) { await saveDb(false); if (!fileHandle) { toast('保存先のファイルを選ぶと設定できます。', 4000); return false; } }
     if (fileHandle) await kv('readwrite', s => s.put({ name: D.name, handle: fileHandle }, 'startup'));
-    else { await kv('readwrite', s => s.put({ name: D.name, bytes: exportDb() }, 'startup')); D.copyVer = D.ver; }
+    else { await kv('readwrite', s => s.put({ name: D.name, blob: currentBlob() }, 'startup')); D.copyVer = D.ver; }
     D.isStartup = true; D.pending = null;
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
-    toast(fileHandle ? '次回から、起動時にこのファイルを開きます。' : '次回から、起動時にこの端末内のコピーを開きます。', 4500); return true;
-  } catch (e) { toast('起動時の設定を保存できませんでした。', 4500); return false; }
+    opClear(); toast(fileHandle ? '次回から、起動時にこのファイルを開きます。' : '次回から、起動時にこの端末内のコピーを開きます。', 4500); return true;
+  } catch (e) { opClear(); toast('起動時の設定を保存できませんでした（' + (e && (e.name || e.message) || '不明') + '）。端末の空き容量や、ライブラリの大きさを確認してください。', 8000); return false; }
 }
 async function disableStartup() {
   try { await kv('readwrite', s => s.delete('startup')); } catch (e) {}
@@ -866,9 +889,9 @@ function scheduleCopy() {
   clearTimeout(D.copyTimer);
   D.copyTimer = setTimeout(async () => {
     const v = D.ver;
-    try { await kv('readwrite', s => s.put({ name: D.name, bytes: exportDb() }, 'startup')); D.copyVer = v; updateDbUi(); }
-    catch (e) { toast('端末内のコピーを更新できませんでした。', 4000); }
-  }, 1500);
+    try { opMark('端末内のコピーの更新'); await kv('readwrite', s => s.put({ name: D.name, blob: currentBlob() }, 'startup')); D.copyVer = v; opClear(); updateDbUi(); }
+    catch (e) { opClear(); toast('端末内のコピーを更新できませんでした（' + (e && (e.name || e.message) || '不明') + '）。', 6000); }
+  }, window.showSaveFilePicker ? 1500 : 4000);
 }
 async function flagStartup(handle) {
   try { const rec = await kv('readonly', s => s.get('startup')); if (rec && rec.handle && handle && await rec.handle.isSameEntry(handle)) { D.isStartup = true; D.pending = null; updateDbUi(); } } catch (e) {}
@@ -879,7 +902,7 @@ async function resumeStartup() {
     if (rec.handle) {
       if (rec.handle.requestPermission && (await rec.handle.requestPermission({ mode: 'readwrite' })) !== 'granted') { toast('ファイルへのアクセスを許可してください。', 4500); return; }
       await loadDbFile(await rec.handle.getFile(), rec.handle, true);
-    } else await loadDbFile(new File([rec.bytes], rec.name), null, true);
+    } else await loadDbFile(new File([rec.blob || rec.bytes], rec.name), null, true);
   } catch (e) { toast('前回のファイルを開けませんでした。移動または削除された可能性があります。', 6000); }
 }
 async function tryStartup() {
@@ -891,7 +914,7 @@ async function tryStartup() {
     if (rec.handle) {
       let perm = 'prompt'; try { perm = await rec.handle.queryPermission({ mode: 'readwrite' }); } catch (e) {}
       if (perm === 'granted') await loadDbFile(await rec.handle.getFile(), rec.handle, true);
-    } else if (rec.bytes) await loadDbFile(new File([rec.bytes], rec.name), null, true);
+    } else if (rec.blob || rec.bytes) await loadDbFile(new File([rec.blob || rec.bytes], rec.name), null, true);
   } catch (e) { toast('前回のライブラリを自動で開けませんでした。', 5000); }
   render(); updateDbUi();
 }
@@ -1775,6 +1798,7 @@ new ResizeObserver(() => document.documentElement.style.setProperty('--barh', $(
   }
   loadTracks(); render(); updateBar(); updateDbUi();
   if (!window.showSaveFilePicker) $('#dbHint').hidden = false;
+  crashNotice();
   await tryStartup();
 })();
 })();
