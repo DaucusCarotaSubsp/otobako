@@ -228,7 +228,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .ka-vc{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .ka-vc .btn[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .ka-vc label{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim);flex:1;min-width:160px}
-.ka-vc label[hidden],.ka-note[hidden]{display:none}
+.ka-vc [hidden],.ka-note[hidden]{display:none!important}
 .ka-vc input{flex:1;min-width:0;accent-color:var(--accent)}
 .ka-note{font-size:11px;color:var(--faint);line-height:1.6}
 @media (max-width:760px){.ka{grid-template-rows:auto minmax(0,1fr) minmax(150px,34vh) auto}}
@@ -421,7 +421,11 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
       </details>
       <div class="ka-vc">
         <button class="btn sm" type="button" id="kaVc" aria-pressed="false">ボーカルを消す：オフ</button>
-        <button class="btn sm" type="button" id="kaRefBtn">お手本の音程を解析</button>
+        <button class="btn sm" type="button" id="kaRefBtn">お手本を解析（ボーカル抽出＋音程）</button>
+        <select id="kaVocStr" aria-label="ボーカル抽出の強さ" class="btn sm"><option value="weak">抽出：弱（伴奏が残る）</option><option value="mid" selected>抽出：標準</option><option value="strong">抽出：強（声が痩せる）</option></select>
+        <button class="btn sm" type="button" id="kaReVoc" hidden>ボーカルを抽出し直す</button>
+        <button class="btn sm" type="button" id="kaGuide" aria-pressed="false" hidden>お手本ボーカルを流す：オフ</button>
+        <label id="kaGuideS" hidden>お手本の音量<input type="range" id="kaGuideVol" min="0" max="100" value="80"></label>
         <select id="kaRefSens" aria-label="解析の感度" class="btn sm"><option value="strict">感度：低（ノイズ少なめ）</option><option value="mid" selected>感度：標準</option><option value="high">感度：高（伴奏が厚い曲向け）</option></select><span class="ka-note" id="kaRefSt"></span>
         <label id="kaVcS" hidden>消す強さ<input type="range" id="kaVcAmt" min="0" max="100" value="100"></label>
       </div>
@@ -802,6 +806,7 @@ CREATE TABLE IF NOT EXISTS playlists(id INTEGER PRIMARY KEY AUTOINCREMENT, name 
 CREATE TABLE IF NOT EXISTS playlist_tracks(playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, pos INTEGER NOT NULL, PRIMARY KEY(playlist_id, track_id));
 CREATE INDEX IF NOT EXISTS playlist_pos ON playlist_tracks(playlist_id, pos);
 CREATE TABLE IF NOT EXISTS melody(track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE, hop REAL NOT NULL, data BLOB NOT NULL);
+CREATE TABLE IF NOT EXISTS vocal(track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE, sr INTEGER NOT NULL, data BLOB NOT NULL);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('app', 'Otobako'), ('schema', '3');
 `;
 const SQLITE_MAGIC = 'SQLite format 3\u0000';
@@ -2113,7 +2118,7 @@ function kaOpen() {
   hydrateIcons($('#ka')); kaBuild(); kaLoadRef(); kaRead(null);
   cancelAnimationFrame(KA.raf); KA.raf = requestAnimationFrame(kaLoop);
 }
-function kaClose() { KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
+function kaClose() { guideOff(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
 /* reference melody: estimate the lead line from the centre of the stereo image (low accuracy by design) */
 const REF_SR = 16000, REF_HOP = 400, REF_W = 512, REF_TAU_MAX = 200, REF_TAU_MIN = 14;
 function bqCoef(type, f, sr, Q) {
@@ -2164,44 +2169,149 @@ function kaScore(ta, m) {
   KA.sc.n++; if (Math.abs(d) <= 1) KA.sc.hit++;
 }
 function kaSetRef(u8, hop) {
-  if (!u8) { KA.ref = null; $('#kaRefBtn').textContent = 'お手本の音程を解析'; $('#kaRefSt').textContent = ''; return; }
+  if (!u8) { KA.ref = null; $('#kaRefBtn').textContent = 'お手本を解析（ボーカル抽出＋音程）'; $('#kaRefSt').textContent = ''; return; }
   const notes = refNotes(u8, hop); KA.ref = { notes };
   KA.shift = 0; KA.dsamp = []; KA.sc = { n: 0, hit: 0 };
   if (notes.length) { const ms = notes.map(n => n.m).sort((a, b) => a - b); KA.center = ms[ms.length >> 1]; }
   $('#kaRefBtn').textContent = 'お手本を解析し直す'; $('#kaRefSt').textContent = notes.length ? '推定のお手本（緑の帯）を表示中。精度は低めです。' : 'お手本の音程を検出できませんでした。';
 }
-function kaLoadRef() {
-  KA.anTok++; KA.analyzing = false; const t = curTrack(); KA.refId = t ? t.id : null;
-  let row = null; try { if (t) row = q('SELECT hop, data FROM melody WHERE track_id = ?', [t.id])[0]; } catch (e) {}
-  kaSetRef(row ? row.data : null, row ? row.hop : 0); $('#kaRefBtn').disabled = !t;
+/* centre extraction: keep the part of the mix that is identical in both channels (usually the lead vocal) */
+const FFT = { N: 0, rev: null, cs: null, sn: null };
+function fftInit(N) {
+  if (FFT.N === N) return; FFT.N = N; FFT.rev = new Uint32Array(N); const bits = Math.log2(N);
+  for (let i = 0; i < N; i++) { let r = 0; for (let b = 0; b < bits; b++) if ((i >> b) & 1) r |= 1 << (bits - 1 - b); FFT.rev[i] = r; }
+  FFT.cs = new Float32Array(N / 2); FFT.sn = new Float32Array(N / 2);
+  for (let i = 0; i < N / 2; i++) { FFT.cs[i] = Math.cos(2 * Math.PI * i / N); FFT.sn[i] = -Math.sin(2 * Math.PI * i / N); }
 }
-async function kaAnalyze() {
-  if (KA.analyzing) { KA.anTok++; KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本の音程を解析'; $('#kaRefSt').textContent = '解析を中止しました。'; opClear(); return; }
+function fft(re, im, inv) {
+  const N = FFT.N, rev = FFT.rev;
+  for (let i = 0; i < N; i++) { const j = rev[i]; if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+  for (let size = 2; size <= N; size <<= 1) {
+    const half = size >> 1, step = N / size;
+    for (let i = 0; i < N; i += size) for (let j = 0, k = 0; j < half; j++, k += step) {
+      const wr = FFT.cs[k], wi = inv ? -FFT.sn[k] : FFT.sn[k], a = i + j, b = a + half;
+      const tr = re[b] * wr - im[b] * wi, ti = re[b] * wi + im[b] * wr;
+      re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+    }
+  }
+  if (inv) for (let i = 0; i < N; i++) { re[i] /= N; im[i] /= N; }
+}
+async function extractCenter(L, R, n, gamma, alive, onProg) {
+  const N = 1024, H = 512, half = N / 2; fftInit(N);
+  const win = new Float32Array(N); for (let i = 0; i < N; i++) win[i] = Math.sqrt(0.5 - 0.5 * Math.cos(2 * Math.PI * i / N));
+  const out = new Float32Array(n), re = new Float32Array(N), im = new Float32Array(N), gr = new Float32Array(half + 1), gi = new Float32Array(half + 1);
+  const nf = Math.ceil(n / H) + 1; let tick = performance.now();
+  for (let f = 0; f < nf; f++) {
+    const o = f * H - H;
+    for (let i = 0; i < N; i++) { const idx = o + i, w = win[i]; if (idx >= 0 && idx < n) { re[i] = L[idx] * w; im[i] = R[idx] * w; } else { re[i] = 0; im[i] = 0; } }
+    fft(re, im, false);
+    for (let k = 0; k <= half; k++) {
+      const k2 = (N - k) & (N - 1), zr = re[k], zi = im[k], cr = re[k2], ci = -im[k2];
+      const Lr = (zr + cr) / 2, Li = (zi + ci) / 2, Rr = (zi - ci) / 2, Ri = -(zr - cr) / 2;
+      const Mr = (Lr + Rr) / 2, Mi = (Li + Ri) / 2, Sr = (Lr - Rr) / 2, Si = (Li - Ri) / 2;
+      const m2 = Mr * Mr + Mi * Mi, s2 = Sr * Sr + Si * Si, hz = k * REF_SR / N;
+      let g = m2 > 1e-12 ? 1 - Math.sqrt(s2 / m2) : 0; if (g < 0) g = 0; if (hz < 90 || hz > 7000) g = 0; else if (gamma !== 1) g = Math.pow(g, gamma);
+      gr[k] = Mr * g; gi[k] = Mi * g;
+    }
+    for (let k = 0; k <= half; k++) { re[k] = gr[k]; im[k] = gi[k]; }
+    for (let k = 1; k < half; k++) { re[N - k] = gr[k]; im[N - k] = -gi[k]; }
+    im[0] = 0; im[half] = 0;
+    fft(re, im, true);
+    for (let i = 0; i < N; i++) { const idx = o + i; if (idx >= 0 && idx < n) out[idx] += re[i] * win[i]; }
+    if (performance.now() - tick > 40) { await new Promise(r => setTimeout(r, 0)); tick = performance.now(); if (!alive()) return null; onProg(f / nf); }
+  }
+  return out;
+}
+function wav16(x, sr) {
+  const n = x.length, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf), w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, n * 2, true);
+  let pk = 1e-6; for (let i = 0; i < n; i++) { const a = Math.abs(x[i]); if (a > pk) pk = a; }
+  const g = 0.9 / pk; for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, x[i] * g)) * 32767), true);
+  return new Uint8Array(buf);
+}
+function wavToF32(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), n = (u8.byteLength - 44) >> 1, x = new Float32Array(n);
+  for (let i = 0; i < n; i++) x[i] = dv.getInt16(44 + i * 2, true) / 32768; return x;
+}
+function toRate(ch, ratio) {
+  const n = Math.floor(ch.length / ratio); if (ratio === 1) return ch;
+  const x = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const a = Math.floor(i * ratio), b = Math.max(a + 1, Math.floor((i + 1) * ratio)); let s = 0; for (let j = a; j < b; j++) s += ch[j]; x[i] = s / (b - a); }
+  return x;
+}
+
+/* guide vocal playback (the extracted vocal, kept in sync with the main audio) */
+const GD = { el: new Audio(), url: null, on: false };
+GD.el.preload = 'auto';
+function guideSync(force) {
+  if (!GD.on) return;
+  GD.el.playbackRate = audio.playbackRate || 1;
+  if (audio.paused) { if (!GD.el.paused) GD.el.pause(); } else if (GD.el.paused) GD.el.play().catch(() => {});
+  if (force || Math.abs(GD.el.currentTime - audio.currentTime) > 0.12) { try { GD.el.currentTime = audio.currentTime; } catch (e) {} }
+}
+function guideOff() {
+  GD.on = false; try { GD.el.pause(); } catch (e) {} if (GD.url) { GD.el.removeAttribute('src'); URL.revokeObjectURL(GD.url); GD.url = null; }
+  const b = $('#kaGuide'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = 'お手本ボーカルを流す：オフ'; }
+}
+async function guideOn() {
+  const t = curTrack(); if (!t) return;
+  const row = q('SELECT data FROM vocal WHERE track_id = ?', [t.id])[0]; if (!row) { kaMsg('先に「お手本を解析」を実行してください。'); return; }
+  if (GD.url) URL.revokeObjectURL(GD.url);
+  GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; GD.el.volume = $('#kaGuideVol').value / 100; GD.on = true;
+  const b = $('#kaGuide'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'お手本ボーカルを流す：オン';
+  try { await GD.el.play(); } catch (e) { kaMsg('お手本ボーカルを再生できませんでした。'); }
+  if (audio.paused) GD.el.pause(); guideSync(true);
+}
+['play', 'pause', 'seeked', 'ratechange'].forEach(ev => audio.addEventListener(ev, () => guideSync(ev === 'seeked')));
+$('#kaGuide').addEventListener('click', () => GD.on ? guideOff() : guideOn());
+$('#kaGuideVol').addEventListener('input', e => { GD.el.volume = e.target.value / 100; });
+
+function kaUiVocal(has) {
+  $('#kaGuide').hidden = !has; $('#kaGuideS').hidden = !has; $('#kaReVoc').hidden = !has; $('#kaVocStr').hidden = !has && false;
+}
+function kaLoadRef() {
+  KA.anTok++; KA.analyzing = false; guideOff(); const t = curTrack(); KA.refId = t ? t.id : null;
+  let row = null, vr = null; try { if (t) { row = q('SELECT hop, data FROM melody WHERE track_id = ?', [t.id])[0]; vr = q('SELECT length(data) AS n FROM vocal WHERE track_id = ?', [t.id])[0]; } } catch (e) {}
+  kaSetRef(row ? row.data : null, row ? row.hop : 0); kaUiVocal(!!vr); $('#kaRefBtn').disabled = !t;
+  if (vr && !row) $('#kaRefSt').textContent = '抽出済みのボーカル音声があります（' + (vr.n / 1048576).toFixed(1) + ' MB）。音程を解析します。';
+}
+async function kaAnalyze(reExtract) {
+  if (KA.analyzing) { KA.anTok++; KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本を解析（ボーカル抽出＋音程）'; $('#kaRefSt').textContent = '解析を中止しました。'; opClear(); return; }
   const t = curTrack(); if (!t) return;
   const my = ++KA.anTok, id = t.id; KA.analyzing = true; kaMsg('');
   { const sv = $('#kaRefSens').value; KA.cfg = sv === 'strict' ? { clar: 0.8, dthr: 0.2 } : sv === 'high' ? { clar: 0.4, dthr: 0.4 } : { clar: 0.5, dthr: 0.35 }; }
-  $('#kaRefBtn').textContent = '解析を中止'; $('#kaRefSt').textContent = '音声を読み込み中…'; opMark('お手本の音程の解析');
+  const gamma = { weak: 1, mid: 2, strong: 4 }[$('#kaVocStr').value] || 2;
+  $('#kaRefBtn').textContent = '解析を中止'; $('#kaRefSt').textContent = '音声を読み込み中…'; opMark('お手本の解析');
   const alive = () => KA.anTok === my && KA.open;
   try {
-    const row = q('SELECT data FROM audio WHERE track_id = ?', [id])[0]; if (!row) throw new Error('音声データなし');
-    const bytes = row.data, ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext, oc = new OAC(2, REF_SR, REF_SR);
-    const buf = await new Promise((res, rej) => { const p = oc.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); });
-    if (!alive()) return;
-    const L = buf.getChannelData(0), Rr = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, ratio = buf.sampleRate / REF_SR, n = Math.floor(buf.length / ratio), x = new Float32Array(n);
-    if (ratio === 1) for (let i = 0; i < n; i++) x[i] = (L[i] + Rr[i]) * 0.5;
-    else for (let i = 0; i < n; i++) { const a = Math.floor(i * ratio), b = Math.max(a + 1, Math.floor((i + 1) * ratio)); let s = 0; for (let j = a; j < b; j++) s += L[j] + Rr[j]; x[i] = s / (2 * (b - a)); }
+    let x = null, stored = null;
+    if (reExtract !== true) { const vr = q('SELECT data FROM vocal WHERE track_id = ?', [id])[0]; if (vr) { stored = vr.data; x = wavToF32(stored); } }
+    if (!x) {
+      const row = q('SELECT data FROM audio WHERE track_id = ?', [id])[0]; if (!row) throw new Error('音声データなし');
+      const bytes = row.data, ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext, oc = new OAC(2, REF_SR, REF_SR);
+      let buf = await new Promise((res, rej) => { const p = oc.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); });
+      if (!alive()) return;
+      const ratio = buf.sampleRate / REF_SR, c0 = buf.getChannelData(0), c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0;
+      const Lc = toRate(c0, ratio), Rc = c1 === c0 ? Lc : toRate(c1, ratio); buf = null;
+      $('#kaRefSt').textContent = 'ボーカルを抽出中 0%';
+      x = await extractCenter(Lc, Rc, Lc.length, gamma, alive, p => { $('#kaRefSt').textContent = 'ボーカルを抽出中 ' + Math.round(p * 100) + '%（長い曲は時間がかかります）'; });
+      if (!x) return;
+      stored = wav16(x, REF_SR);
+      run('INSERT OR REPLACE INTO vocal(track_id, sr, data) VALUES (?, ?, ?)', [id, REF_SR, stored]); markDirty(); kaUiVocal(true);
+    }
+    const n = x.length;
     const hp = bqCoef('hp', 130, REF_SR, 0.707), lp = bqCoef('lp', 1100, REF_SR, 0.707);
     bqRun(x, hp); bqRun(x, hp); bqRun(x, lp);
     const frames = Math.max(0, Math.floor((n - REF_W - REF_TAU_MAX) / REF_HOP)), rmsA = new Float32Array(frames); let sum = 0;
     for (let k = 0; k < frames; k++) { let e = 0; const o = k * REF_HOP; for (let j = 0; j < REF_W; j += 4) e += x[o + j] * x[o + j]; rmsA[k] = Math.sqrt(e / (REF_W / 4)); sum += rmsA[k]; }
-    const gate = Math.max(0.002, (sum / Math.max(1, frames)) * 0.25), d = new Float32Array(REF_TAU_MAX + 2), mm = new Float32Array(frames).fill(NaN);
+    const gate = Math.max(0.0005, (sum / Math.max(1, frames)) * 0.25), d = new Float32Array(REF_TAU_MAX + 2), mm = new Float32Array(frames).fill(NaN);
     let tick = performance.now();
     for (let k = 0; k < frames; k++) {
       if (rmsA[k] >= gate) { const r = yinRef(x, k * REF_HOP, d); if (r && r.clarity >= KA.cfg.clar && r.f >= 80 && r.f <= 1100) mm[k] = 69 + 12 * Math.log2(r.f / 440); }
-      if (performance.now() - tick > 40) { await new Promise(r => setTimeout(r, 0)); tick = performance.now(); if (!alive()) return; $('#kaRefSt').textContent = '解析中 ' + Math.round(k / frames * 100) + '%（長い曲は時間がかかります）'; }
+      if (performance.now() - tick > 40) { await new Promise(r => setTimeout(r, 0)); tick = performance.now(); if (!alive()) return; $('#kaRefSt').textContent = '音程を解析中 ' + Math.round(k / frames * 100) + '%'; }
     }
-    // smooth: 5-frame median over voiced neighbours, then pull octave jumps toward the 1 s local median
     const sm = new Float32Array(frames).fill(NaN);
     for (let k = 0; k < frames; k++) { if (isNaN(mm[k])) continue; const w = []; for (let j = Math.max(0, k - 2); j <= Math.min(frames - 1, k + 2); j++) if (!isNaN(mm[j])) w.push(mm[j]); w.sort((a, b) => a - b); sm[k] = w[w.length >> 1]; }
     const out = new Uint8Array(frames);
@@ -2212,16 +2322,17 @@ async function kaAnalyze() {
     }
     if (!alive()) return;
     run('INSERT OR REPLACE INTO melody(track_id, hop, data) VALUES (?, ?, ?)', [id, REF_HOP / REF_SR, out]); markDirty();
-    KA.analyzing = false; kaSetRef(out, REF_HOP / REF_SR); opClear();
+    KA.analyzing = false; kaSetRef(out, REF_HOP / REF_SR); opClear(); kaUiVocal(true);
     let vo = 0; for (let k = 0; k < frames; k++) if (out[k]) vo++;
-    if (KA.ref && KA.ref.notes.length) $('#kaRefSt').textContent = `解析結果：${KA.ref.notes.length}音、声らしい部分 ${Math.round(vo / Math.max(1, frames) * 100)}%（曲の長さ ${fmtT(n / REF_SR)}）。精度は低めです。`;
-    toast(KA.ref && KA.ref.notes.length ? 'お手本の音程を保存しました（ライブラリに記録されます）' : 'お手本の音程を検出できませんでした', 4000);
+    if (KA.ref && KA.ref.notes.length) $('#kaRefSt').textContent = `解析結果：${KA.ref.notes.length}音、声らしい部分 ${Math.round(vo / Math.max(1, frames) * 100)}%（曲の長さ ${fmtT(n / REF_SR)}）。ボーカル音声 ${(stored.length / 1048576).toFixed(1)} MB もライブラリに保存しました。`;
+    toast(KA.ref && KA.ref.notes.length ? 'お手本（ボーカル音声と音程）を保存しました' : 'お手本の音程を検出できませんでした', 4000);
   } catch (e) {
-    opClear(); KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本の音程を解析'; $('#kaRefSt').textContent = '';
-    kaMsg('お手本の音程を解析できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。この形式の音声は解析に対応していない可能性があります。');
+    opClear(); KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本を解析（ボーカル抽出＋音程）'; $('#kaRefSt').textContent = '';
+    kaMsg('お手本を解析できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。この形式の音声は解析に対応していない可能性があります。');
   }
 }
-$('#kaRefBtn').addEventListener('click', kaAnalyze);
+$('#kaRefBtn').addEventListener('click', () => kaAnalyze(false));
+$('#kaReVoc').addEventListener('click', () => kaAnalyze(true));
 
 /* vocal cut: cancel what sits in the centre of the stereo image (usually the lead vocal), keep the bass */
 const VC = { ctx: null, wet: null, dry: null, on: false, anO: null, anW: null, timer: 0, warned: false };
