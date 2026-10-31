@@ -191,6 +191,42 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .np-meta p{color:var(--dim)}
 .np-opts{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .np-ly{min-height:0;min-width:0;position:relative}
+.ka{position:fixed;inset:0;z-index:45;background:var(--bg);display:grid;grid-template-rows:auto minmax(0,1fr) minmax(170px,36vh) auto;gap:10px;
+  padding:max(12px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(12px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.ka[hidden]{display:none}
+.ka-top{display:flex;align-items:center;gap:10px;min-width:0}
+.ka-title{flex:1;min-width:0;display:grid;line-height:1.35}
+.ka-title b{font-weight:900;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ka-title span{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ka-mic{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--line);font-weight:700;font-size:13px;flex:none}
+.ka-mic.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ka-lv{width:34px;height:6px;border-radius:3px;background:var(--line);overflow:hidden;flex:none}
+.ka-lv i{display:block;height:100%;width:0;background:var(--accent)}
+.ka-mic.on .ka-lv{background:rgba(0,0,0,.25)}.ka-mic.on .ka-lv i{background:var(--accent-ink)}
+.ka-ly{min-height:0;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:clamp(8px,2vh,18px);overflow:hidden;padding:0 4px}
+.ka-ly .p{color:var(--faint);font-size:clamp(13px,2.2vw,18px);min-height:1.4em;max-width:100%;overflow-wrap:anywhere}
+.ka-ly .n{color:var(--dim);font-size:clamp(15px,2.8vw,24px);max-width:100%;overflow-wrap:anywhere}
+.ka-ly .c{font-weight:900;font-size:clamp(24px,5.4vw,46px);line-height:1.35;max-width:100%;overflow-wrap:anywhere;text-wrap:balance}
+.ka-ly .c span{background:linear-gradient(90deg,var(--accent) calc(var(--p,0)*1%),var(--fg) calc(var(--p,0)*1%));-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+.ka-ly .c.rest span{background:none;-webkit-text-fill-color:var(--faint);color:var(--faint)}
+.ka-ly .none{color:var(--dim);max-width:34em}
+.ka-pitch{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:10px 12px}
+.ka-read{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;font-family:var(--mono);color:var(--dim);font-size:12px}
+.ka-read #kaNote{font-size:24px;font-weight:500;color:var(--fg);min-width:3.2em}
+.ka-cv-wrap{position:relative;min-height:0}
+.ka-cv-wrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.ka-ctl{display:grid;gap:8px}
+.ka-tr{display:flex;align-items:center;gap:10px}
+.ka-tr input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
+.ka-tr .tm{font:500 12px var(--mono);color:var(--dim);min-width:4.2em;text-align:center;font-variant-numeric:tabular-nums}
+.ka-set summary{cursor:pointer;color:var(--dim);font-size:12px;padding:4px 0}
+.ka-set .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 18px;padding:6px 0 2px;font-size:12px;color:var(--dim)}
+.ka-set label{display:grid;gap:3px}.ka-set label.ck{display:flex;gap:8px;align-items:center}
+.ka-set input[type=range]{width:100%;accent-color:var(--accent)}
+.ka-msg{font-size:12px;color:var(--danger);line-height:1.6}
+.ka-msg[hidden]{display:none}
+@media (max-width:760px){.ka{grid-template-rows:auto minmax(0,1fr) minmax(150px,34vh) auto}}
+
 .ly-scroll{height:100%;overflow:auto;position:relative;scrollbar-width:none;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 88%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 88%,transparent 100%)}
 .ly-scroll::-webkit-scrollbar{display:none}
 .ly-list{padding-block:36vh}
@@ -344,11 +380,40 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
             <button class="icon-btn" type="button" data-act="repeat" aria-label="リピート" data-i="repeat"></button>
             <button class="spdbtn" type="button" aria-label="再生速度" aria-haspopup="dialog">1.00x</button>
             <button class="btn sm ghost" type="button" id="npAdd"><span data-i="plus" data-s="15"></span>プレイリストへ</button>
+            <button class="btn sm" type="button" id="npKaraoke"><span data-i="mic" data-s="15"></span>カラオケ</button>
             <button class="btn sm ghost" type="button" id="npEdit"><span data-i="edit" data-s="15"></span>情報を編集</button>
           </div>
         </div>
       </div>
       <div class="np-ly"><div class="ly-scroll" id="lyScroll"><div class="ly-list" id="lyList"></div></div></div>
+    </div>
+  </section>
+
+  <section class="ka" id="ka" hidden role="dialog" aria-label="カラオケ">
+    <div class="ka-top">
+      <button class="icon-btn" id="kaClose" type="button" aria-label="カラオケを閉じる" data-i="down"></button>
+      <div class="ka-title"><b id="kaTitle"></b><span id="kaArtist"></span></div>
+      <button class="ka-mic" id="kaMic" type="button"><span data-i="mic" data-s="16"></span><span id="kaMicTx">マイクをオン</span><span class="ka-lv"><i id="kaLv"></i></span></button>
+    </div>
+    <div class="ka-ly" id="kaLy"></div>
+    <div class="ka-pitch">
+      <div class="ka-read"><span id="kaNote">--</span><span id="kaHz"></span><span id="kaCents"></span><span id="kaRange"></span></div>
+      <div class="ka-cv-wrap"><canvas id="kaCv"></canvas></div>
+    </div>
+    <div class="ka-ctl">
+      <div class="ka-tr">
+        <button class="icon-btn" id="kaPlay" type="button" aria-label="再生"></button>
+        <span class="tm" id="kaT0">0:00</span><input type="range" id="kaSeek" min="0" max="1000" value="0" aria-label="再生位置"><span class="tm" id="kaT1">0:00</span>
+      </div>
+      <details class="ka-set"><summary>マイクの設定</summary>
+        <div class="g">
+          <label>マイク感度（声を拾う最小の大きさ）<input type="range" id="kaSens" min="0" max="100" value="60"></label>
+          <label>遅延補正：<span id="kaLatTx">150</span> ms（音程バーと歌詞のずれを合わせます）<input type="range" id="kaLat" min="0" max="500" step="10" value="150"></label>
+          <label class="ck"><input type="checkbox" id="kaMon">自分の声をイヤホンで聞く（スピーカーでは使わない）</label>
+          <button class="btn sm" type="button" id="kaClear">音程の記録をクリア</button>
+        </div>
+      </details>
+      <p class="ka-msg" id="kaMsg" hidden></p>
     </div>
   </section>
 
@@ -677,7 +742,8 @@ const ICONS = {
   plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   up:'<polyline points="18 15 12 9 6 15"/>',
   plist:'<line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="10" y2="18"/><path d="M19 15V5l3 1"/><circle cx="17" cy="16" r="2.2"/>',
-  back:'<polyline points="15 18 9 12 15 6"/>'
+  back:'<polyline points="15 18 9 12 15 6"/>',
+  mic:'<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="22"/>'
 };
 function icon(n, sz = 20) {
   const t = document.createElement('template');
@@ -1785,6 +1851,249 @@ window.addEventListener('drop', e => { if (!hasFiles(e)) return; e.preventDefaul
 new ResizeObserver(() => document.documentElement.style.setProperty('--barh', $('#bar').offsetHeight + 'px')).observe($('#bar'));
 
 /* ---------- boot ---------- */
+
+/* ---------- karaoke ---------- */
+const KA = { open: false, stream: null, ctx: null, an: null, src: null, mon: null, buf: null, d: null, raf: 0, fc: 0,
+  hist: [], center: 60, minM: null, maxM: null, last: null, lyrSrc: null, words: null, idx: -2, cEl: null, wk: null, lv: 0, med: [] };
+const NOTE_N = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+const noteName = m => { const r = Math.round(m); return NOTE_N[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1); };
+const fmtT = s => { s = Math.max(0, s || 0); return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0'); };
+const kaMsg = t => { const m = $('#kaMsg'); m.textContent = t || ''; m.hidden = !t; };
+
+// <mm:ss.xx> 付き（拡張LRC）の行から単語ごとの時刻を取り出す。無い行は行単位で表示する。
+function kaParseWords(text) {
+  const map = new Map(); if (!text) return map;
+  let offset = 0;
+  for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const line = raw.trim(), om = line.match(/^\[offset:(.*)\]$/i);
+    if (om) { offset = (parseInt(om[1], 10) || 0) / 1000; continue; }
+    const lead = line.match(/^(?:\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+/); if (!lead) continue;
+    const rest = line.slice(lead[0].length); if (!/<\d{1,3}:\d{1,2}/.test(rest)) continue;
+    const toT = (a, b, c) => (+a) * 60 + (+b) + (c ? parseInt(c, 10) / Math.pow(10, c.length) : 0);
+    const f = lead[0].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/);
+    let t = toT(f[1], f[2], f[3]) - offset; const words = [];
+    for (const p of rest.split(/(<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>)/)) {
+      const m = p.match(/^<(\d+):(\d+)(?:[.:](\d+))?>$/);
+      if (m) t = toT(m[1], m[2], m[3]) - offset; else if (p) words.push({ t: Math.max(0, t), text: p });
+    }
+    if (!words.length) continue;
+    const key = Math.round(Math.max(0, toT(f[1], f[2], f[3]) - offset) * 1000);
+    map.set(key, words);
+  }
+  return map;
+}
+
+/* pitch detection (YIN) */
+function yin(buf, sr) {
+  const W = buf.length >> 1, tauMax = Math.min(W - 1, Math.floor(sr / 70)), tauMin = Math.max(2, Math.floor(sr / 1100));
+  const d = KA.d && KA.d.length >= tauMax + 2 ? KA.d : (KA.d = new Float32Array(tauMax + 2));
+  let run = 0; d[0] = 1;
+  for (let tau = 1; tau <= tauMax; tau++) {
+    let s = 0; for (let j = 0; j < W; j++) { const x = buf[j] - buf[j + tau]; s += x * x; }
+    run += s; d[tau] = run ? s * tau / run : 1;
+  }
+  for (let tau = tauMin; tau < tauMax; tau++) {
+    if (d[tau] < 0.16) {
+      while (tau + 1 < tauMax && d[tau + 1] < d[tau]) tau++;
+      const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c;
+      const tp = den ? tau + (a - c) / (2 * den) : tau;
+      return { f: sr / tp, clarity: 1 - b };
+    }
+  }
+  return null;
+}
+function kaDetect() {
+  const an = KA.an; if (!an) return;
+  an.getFloatTimeDomainData(KA.buf);
+  let e = 0; for (let i = 0; i < KA.buf.length; i++) e += KA.buf[i] * KA.buf[i];
+  const rms = Math.sqrt(e / KA.buf.length);
+  KA.lv = Math.max(rms * 5, KA.lv * 0.85); $('#kaLv').style.width = Math.min(100, KA.lv * 100) + '%';
+  const thr = 0.003 + (1 - $('#kaSens').value / 100) * 0.04;
+  let r = rms >= thr ? yin(KA.buf, KA.ctx.sampleRate) : null;
+  if (r && r.clarity < 0.8) r = null;
+  const playing = !audio.paused;
+  if (!r) { KA.med = []; KA.last = null; if (playing) KA.hist.push(null); kaRead(null); return; }
+  let m = 69 + 12 * Math.log2(r.f / 440);
+  KA.med.push(m); if (KA.med.length > 3) KA.med.shift();
+  const sm = [...KA.med].sort((a, b) => a - b)[KA.med.length >> 1];
+  KA.last = { m: sm, f: r.f, w: performance.now() };
+  if (KA.minM === null || sm < KA.minM) KA.minM = sm;
+  if (KA.maxM === null || sm > KA.maxM) KA.maxM = sm;
+  if (playing) {
+    const ta = (audio.currentTime || 0) - $('#kaLat').value / 1000;
+    KA.hist.push({ t: ta, m: sm });
+    if (KA.hist.length > 6000) KA.hist.splice(0, 2000);
+  }
+  kaRead(KA.last);
+}
+function kaRead(v) {
+  $('#kaNote').textContent = v ? noteName(v.m) : '--';
+  $('#kaHz').textContent = v ? v.f.toFixed(1) + ' Hz' : '';
+  const c = v ? Math.round((v.m - Math.round(v.m)) * 100) : null;
+  $('#kaCents').textContent = c === null ? '' : (c > 0 ? '+' : '') + c + '¢';
+  $('#kaRange').textContent = KA.minM === null ? '' : '歌った範囲 ' + noteName(KA.minM) + ' – ' + noteName(KA.maxM);
+}
+
+/* pitch bar */
+function kaDraw() {
+  const cv = $('#kaCv'), dpr = Math.min(devicePixelRatio || 1, 2);
+  const W = Math.round(cv.clientWidth * dpr), H = Math.round(cv.clientHeight * dpr);
+  if (!W || !H) return;
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const g = cv.getContext('2d'), cs = getComputedStyle(document.documentElement);
+  const accent = cs.getPropertyValue('--accent').trim() || '#ff6a52', dim = cs.getPropertyValue('--faint').trim() || '#888', line = cs.getPropertyValue('--line').trim() || '#333', fg = cs.getPropertyValue('--fg').trim() || '#fff';
+  g.clearRect(0, 0, W, H);
+  const labelW = 34 * dpr, laneH = 12 * dpr, top = laneH + 6 * dpr, x0 = labelW, pw = W - labelW;
+  const past = 4, fut = 6, pps = pw / (past + fut), playX = x0 + past * pps, now = audio.currentTime || 0;
+  // key range follows the singer's voice
+  if (KA.last) KA.center += (KA.last.m - KA.center) * 0.02;
+  const span = 24, lo = KA.center - span / 2, hi = KA.center + span / 2, ph = H - top - 4 * dpr;
+  const Y = m => top + (hi - m) / span * ph, X = t => playX + (t - now) * pps;
+  g.font = `${10 * dpr}px ui-monospace,Menlo,monospace`; g.textBaseline = 'middle'; g.textAlign = 'right';
+  let lastLab = -1e9;
+  for (let m = Math.floor(hi); m >= Math.ceil(lo); m--) {
+    const pc = ((m % 12) + 12) % 12, nat = [0, 2, 4, 5, 7, 9, 11].includes(pc), y = Y(m);
+    g.strokeStyle = line; g.globalAlpha = pc === 0 ? 1 : nat ? 0.55 : 0.2; g.lineWidth = dpr;
+    g.beginPath(); g.moveTo(x0, y); g.lineTo(W, y); g.stroke();
+    if (nat && (pc === 0 || y - lastLab >= 13 * dpr) && !(pc === 11 && Y(m - 1) - y < 13 * dpr)) { lastLab = y; g.globalAlpha = pc === 0 ? 1 : 0.7; g.fillStyle = pc === 0 ? fg : dim; g.fillText(noteName(m), labelW - 6 * dpr, y); }
+  }
+  g.globalAlpha = 1;
+  // lyric phrases as bars on the top lane
+  const L = S.lyr;
+  if (L && L.synced) {
+    g.fillStyle = accent;
+    for (let i = 0; i < L.lines.length; i++) {
+      const ln = L.lines[i]; if (!ln.text) continue;
+      const end = (L.lines[i + 1] ? L.lines[i + 1].t : ln.t + 5) - 0.15, xa = Math.max(x0, X(ln.t)), xb = Math.min(W, X(end));
+      if (xb <= x0 || xa >= W || xb <= xa) continue;
+      g.globalAlpha = i === KA.idx ? 0.95 : 0.35;
+      g.beginPath(); g.roundRect ? g.roundRect(xa, 2 * dpr, xb - xa, laneH - 2 * dpr, 4 * dpr) : g.rect(xa, 2 * dpr, xb - xa, laneH - 2 * dpr); g.fill();
+    }
+    g.globalAlpha = 1;
+  }
+  // playhead
+  g.strokeStyle = fg; g.globalAlpha = 0.5; g.lineWidth = dpr; g.setLineDash([4 * dpr, 4 * dpr]);
+  g.beginPath(); g.moveTo(playX, top - 4 * dpr); g.lineTo(playX, H); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+  // the singer's pitch trace
+  g.save(); g.beginPath(); g.rect(x0, top - 6 * dpr, pw, H); g.clip();
+  g.strokeStyle = accent; g.lineCap = 'round'; g.lineJoin = 'round'; g.lineWidth = Math.max(4 * dpr, ph / span * 0.75);
+  let prev = null; g.beginPath();
+  for (const p of KA.hist) {
+    if (!p) { prev = null; continue; }
+    if (p.t < now - past - 0.5) { prev = null; continue; }
+    const x = X(p.t), y = Y(p.m);
+    if (prev && p.t - prev.t < 0.2 && p.t >= prev.t) g.lineTo(x, y); else g.moveTo(x, y);
+    prev = p;
+  }
+  g.stroke();
+  if (KA.last && performance.now() - KA.last.w < 200) {
+    const y = Y(KA.last.m); g.fillStyle = accent; g.globalAlpha = 0.25; g.beginPath(); g.arc(playX, y, 12 * dpr, 0, 7); g.fill();
+    g.globalAlpha = 1; g.beginPath(); g.arc(playX, y, 6 * dpr, 0, 7); g.fill();
+  }
+  g.restore();
+}
+
+/* lyrics (large, with a sweep) */
+function kaBuild() {
+  const L = S.lyr, t = curTrack(), box = $('#kaLy');
+  KA.lyrSrc = L; KA.idx = -2; KA.cEl = null; KA.words = t ? kaParseWords(t.lrc) : new Map();
+  $('#kaTitle').textContent = t ? t.title : '再生していません'; $('#kaArtist').textContent = t ? artistOf(t) : '';
+  if (!t || !L || !L.synced) {
+    box.replaceChildren(h('div', { class: 'none' }, !t ? '曲を選んでください。' : !L ? 'この曲には歌詞（LRC）がありません。「情報を編集」からLRCを追加すると、ここに歌詞が流れます。音程バーはそのまま使えます。' : 'この歌詞には時刻がありません（同期LRCではありません）。音程バーはそのまま使えます。'));
+  }
+}
+function kaLyrics() {
+  if (KA.lyrSrc !== S.lyr) kaBuild();
+  const L = S.lyr; if (!L || !L.synced) return;
+  const time = (audio.currentTime || 0) + 0.05, i = activeIdx(L.lines, time);
+  if (i !== KA.idx) {
+    KA.idx = i;
+    const nz = (from, dir, n) => { const o = []; for (let k = from; k >= 0 && k < L.lines.length && o.length < n; k += dir) if (L.lines[k].text) o.push(k); return o; };
+    const cur = i >= 0 ? L.lines[i] : null, rest = !cur || !cur.text;
+    const prev = nz(rest ? i : i - 1, -1, 1), next = nz(i + 1, 1, 2);
+    const box = $('#kaLy'); box.replaceChildren();
+    box.append(h('div', { class: 'p', text: prev.length ? L.lines[prev[0]].text : '' }));
+    let disp = rest ? (i < 0 ? '♪ まもなく開始' : '♪') : cur.text, words = null;
+    if (!rest) { const w = KA.words.get(Math.round(cur.t * 1000)); if (w) { words = w; disp = w.map(x => x.text).join('').trim(); } }
+    KA.wk = words ? { words, total: Math.max(1, words.map(x => x.text).join('').length) } : null;
+    const sp = h('span', { text: disp }); KA.cEl = sp;
+    box.append(h('div', { class: 'c' + (rest ? ' rest' : '') }, sp));
+    next.forEach(k => box.append(h('div', { class: 'n', text: L.lines[k].text })));
+  }
+  if (KA.cEl && L.lines[i] && L.lines[i].text) {
+    const ln = L.lines[i], nx = L.lines[i + 1], end = nx ? nx.t - 0.15 : ln.t + 5;
+    let p = (time - ln.t) / Math.max(0.5, end - ln.t);
+    if (KA.wk) {
+      const ws = KA.wk.words; let before = 0; p = 0;
+      const lead = ws[0].text.length - ws[0].text.trimStart().length;
+      for (let k = 0; k < ws.length; k++) {
+        const w = ws[k], wEnd = ws[k + 1] ? ws[k + 1].t : Math.max(w.t + 0.4, end), len = w.text.length;
+        if (time >= wEnd) { before += len; p = (before - lead) / (KA.wk.total - lead); continue; }
+        if (time >= w.t) p = (before - lead + len * (time - w.t) / Math.max(0.05, wEnd - w.t)) / (KA.wk.total - lead);
+        break;
+      }
+    }
+    KA.cEl.style.setProperty('--p', (Math.max(0, Math.min(1, p)) * 100).toFixed(1));
+  }
+}
+function kaTransport() {
+  const d = audio.duration || 0, seek = $('#kaSeek');
+  $('#kaT0').textContent = fmtT(audio.currentTime); $('#kaT1').textContent = fmtT(d);
+  if (document.activeElement !== seek && d) seek.value = Math.round((audio.currentTime / d) * 1000);
+  const want = audio.paused ? 'play' : 'pause'; const b = $('#kaPlay');
+  if (b.dataset.st !== want) { b.dataset.st = want; b.replaceChildren(icon(want, 22)); b.setAttribute('aria-label', audio.paused ? '再生' : '一時停止'); }
+}
+function kaLoop() {
+  if (!KA.open) return;
+  KA.raf = requestAnimationFrame(kaLoop);
+  if ((KA.fc++ & 1) === 0) kaDetect();
+  kaLyrics(); kaDraw(); kaTransport();
+}
+
+/* microphone */
+async function kaMicOn() {
+  kaMsg('');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { kaMsg('この環境ではマイクを使えません。HTTPSで開いたSafari/Chromeか、ホーム画面に追加したアプリで開いてください。'); return; }
+  try {
+    KA.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) {
+    kaMsg(e && e.name === 'NotAllowedError' ? 'マイクが許可されていません。iPhoneは、画面左上の「ぁあ」またはSafariの設定でマイクを許可してください（ホーム画面のアプリは、再度開くと許可を求められます）。' : e && e.name === 'NotFoundError' ? 'マイクが見つかりません。' : 'マイクを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。');
+    return;
+  }
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; KA.ctx = new AC(); if (KA.ctx.state === 'suspended') await KA.ctx.resume();
+    KA.src = KA.ctx.createMediaStreamSource(KA.stream); KA.an = KA.ctx.createAnalyser(); KA.an.fftSize = 2048; KA.an.smoothingTimeConstant = 0;
+    KA.buf = new Float32Array(KA.an.fftSize); KA.src.connect(KA.an);
+    KA.mon = KA.ctx.createGain(); KA.mon.gain.value = 1; KA.src.connect(KA.mon);
+    if ($('#kaMon').checked) KA.mon.connect(KA.ctx.destination);
+  } catch (e) { kaMicOff(); kaMsg('音声の解析を開始できませんでした。'); return; }
+  $('#kaMic').classList.add('on'); $('#kaMicTx').textContent = 'マイクをオフ';
+}
+function kaMicOff() {
+  try { if (KA.stream) KA.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { if (KA.ctx) KA.ctx.close(); } catch (e) {}
+  KA.stream = KA.ctx = KA.an = KA.src = KA.mon = null; KA.last = null; KA.med = [];
+  $('#kaMic').classList.remove('on'); $('#kaMicTx').textContent = 'マイクをオン'; $('#kaLv').style.width = '0'; kaRead(null);
+}
+function kaOpen() {
+  if (!S.cur) return;
+  KA.open = true; $('#ka').hidden = false; KA.lyrSrc = undefined; KA.hist = []; KA.fc = 0; kaMsg('');
+  hydrateIcons($('#ka')); kaBuild(); kaRead(null);
+  cancelAnimationFrame(KA.raf); KA.raf = requestAnimationFrame(kaLoop);
+}
+function kaClose() { KA.open = false; cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
+$('#npKaraoke').addEventListener('click', kaOpen);
+$('#kaClose').addEventListener('click', kaClose);
+$('#kaMic').addEventListener('click', () => KA.stream ? kaMicOff() : kaMicOn());
+$('#kaPlay').addEventListener('click', () => { if (audio.paused) audio.play(); else audio.pause(); });
+$('#kaSeek').addEventListener('input', e => { if (audio.duration) { audio.currentTime = e.target.value / 1000 * audio.duration; KA.hist = []; } });
+$('#kaLat').addEventListener('input', e => { $('#kaLatTx').textContent = e.target.value; });
+$('#kaClear').addEventListener('click', () => { KA.hist = []; KA.minM = KA.maxM = null; kaRead(KA.last); });
+$('#kaMon').addEventListener('change', e => { if (!KA.mon || !KA.ctx) return; try { if (e.target.checked) KA.mon.connect(KA.ctx.destination); else KA.mon.disconnect(KA.ctx.destination); } catch (er) {} });
+audio.addEventListener('seeked', () => { if (KA.open && !KA.seekKeep) KA.hist = []; });
+document.addEventListener('keydown', e => { if (KA.open && e.key === 'Escape') kaClose(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && KA.open) kaMicOff(); });
+
 (async function boot() {
   hydrateIcons(); setPlayIcon(); updateModes(); document.body.classList.add('paused');
   let v = 80; try { const s = localStorage.getItem('otobako-vol'); if (s !== null) v = Math.max(0, Math.min(100, +s || 0)); } catch (e) {}
