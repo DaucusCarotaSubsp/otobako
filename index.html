@@ -369,6 +369,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
       <label class="dbauto" for="dbAuto"><input type="checkbox" id="dbAuto"><span id="dbAutoTx">次回から起動時にこのライブラリを開く</span></label>
       <div class="dbresume" id="dbResume" hidden><span id="dbResumeName"></span><div class="dbbtns"><button class="btn sm primary" id="btnResume" type="button">開く</button><button class="btn sm ghost" id="btnForget" type="button">解除</button></div></div>
       <div class="dbbtns"><button class="btn sm" id="btnDbOpen" type="button">開く</button><button class="btn sm" id="btnDbNew" type="button">新規</button><button class="btn sm" id="btnDbSave" type="button">保存</button></div>
+      <div class="dbbtns"><button class="btn sm ghost" id="btnDbVac" type="button">空き領域を整理（ファイルを軽くする）</button></div>
       <p class="dbhint" id="dbHint" hidden>このブラウザでは、保存するたびにファイルがダウンロードされます。ChromeかEdgeなら、開いたファイルへ自動で上書き保存できます。</p>
     </div>
     <button class="btn primary imp" id="btnImport" type="button"><span data-i="upload" data-s="18"></span>曲を読み込む</button>
@@ -423,6 +424,11 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
           <label>遅延補正：<span id="kaLatTx">150</span> ms（音程バーと歌詞のずれを合わせます）<input type="range" id="kaLat" min="0" max="500" step="10" value="150"></label>
           <label class="ck"><input type="checkbox" id="kaMon">自分の声をイヤホンで聞く（スピーカーでは使わない）</label>
           <button class="btn sm" type="button" id="kaClear">音程の記録をクリア</button>
+          <div class="kd" style="grid-column:1/-1;display:grid;gap:8px">
+            <span class="ka-note" id="kaKdStat">カラオケ用データベース：確認中…</span>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="kaKdOut">カラオケデータを書き出す（SQLite）</button><button class="btn sm" type="button" id="kaKdIn">カラオケデータを読み込む</button></div>
+            <input type="file" id="kaImpIn" hidden>
+          </div>
         </div>
       </details>
       <div class="ka-vc">
@@ -430,6 +436,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <button class="btn sm" type="button" id="kaRefBtn">お手本を解析（ボーカル抽出＋音程）</button>
         <select id="kaVocStr" aria-label="ボーカル抽出の強さ" class="btn sm"><option value="weak">抽出：弱（伴奏が残る）</option><option value="mid" selected>抽出：標準</option><option value="strong">抽出：強（声が痩せる）</option></select>
         <button class="btn sm" type="button" id="kaReVoc" hidden>ボーカルを抽出し直す</button>
+        <button class="btn sm ghost" type="button" id="kaDelRef" hidden>お手本を削除</button>
         <button class="btn sm" type="button" id="kaGuide" aria-pressed="false" hidden>お手本ボーカルを流す：オフ</button>
         <label id="kaGuideS" hidden>お手本の音量<input type="range" id="kaGuideVol" min="0" max="100" value="80"></label>
         <label id="kaGuideO" hidden>お手本のずれ補正 <span id="kaGuideOT">0</span> ms<input type="range" id="kaGuideOff" min="-200" max="200" step="5" value="0"></label>
@@ -812,9 +819,7 @@ CREATE TABLE IF NOT EXISTS audio(track_id INTEGER PRIMARY KEY REFERENCES tracks(
 CREATE TABLE IF NOT EXISTS playlists(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS playlist_tracks(playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, pos INTEGER NOT NULL, PRIMARY KEY(playlist_id, track_id));
 CREATE INDEX IF NOT EXISTS playlist_pos ON playlist_tracks(playlist_id, pos);
-CREATE TABLE IF NOT EXISTS melody(track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE, hop REAL NOT NULL, data BLOB NOT NULL);
-CREATE TABLE IF NOT EXISTS vocal(track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE, sr INTEGER NOT NULL, data BLOB NOT NULL);
-INSERT OR IGNORE INTO meta(key, value) VALUES ('app', 'Otobako'), ('schema', '3');
+INSERT OR IGNORE INTO meta(key, value) VALUES ('app', 'Otobako'), ('schema', '2');
 `;
 const SQLITE_MAGIC = 'SQLite format 3\u0000';
 const AUDIO_MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', flac: 'audio/flac', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg', aac: 'audio/aac' };
@@ -1747,7 +1752,7 @@ async function saveEdit() {
 async function deleteTrack() {
   const id = ed.id; if (id == null || !byId(id)) return;
   closeEdit();
-  run('DELETE FROM playlist_tracks WHERE track_id = ?', [id]); run('DELETE FROM audio WHERE track_id = ?', [id]); run('DELETE FROM tracks WHERE id = ?', [id]); pruneCovers();
+  try { const tt = byId(id); if (tt) kdRemove(trackKey(tt)); } catch (e) {} run('DELETE FROM playlist_tracks WHERE track_id = ?', [id]); run('DELETE FROM audio WHERE track_id = ?', [id]); run('DELETE FROM tracks WHERE id = ?', [id]); pruneCovers();
   markDirty(); loadTracks();
   S.queue = S.queue.filter(x => x !== id); S.base = S.base.filter(x => x !== id);
   if (S.cur === id) { audio.pause(); audio.removeAttribute('src'); if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; } S.cur = null; S.lyr = null; setNp(false); renderLyrics(); }
@@ -2123,7 +2128,7 @@ function kaMicOff() {
 function kaOpen() {
   if (!S.cur) return;
   KA.open = true; $('#ka').hidden = false; KA.lyrSrc = undefined; KA.hist = []; KA.fc = 0; kaMsg('');
-  hydrateIcons($('#ka')); kaBuild(); kaLoadRef(); kaRead(null);
+  hydrateIcons($('#ka')); kaBuild(); kaLoadRef(); kaRead(null); kdStat(); kdMigrate().then(() => kaLoadRef());
   cancelAnimationFrame(KA.raf); KA.raf = requestAnimationFrame(kaLoop);
 }
 function kaClose() { guideOff(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
@@ -2183,6 +2188,104 @@ function kaSetRef(u8, hop) {
   if (notes.length) { const ms = notes.map(n => n.m).sort((a, b) => a - b); KA.center = ms[ms.length >> 1]; }
   $('#kaRefBtn').textContent = 'お手本を解析し直す'; $('#kaRefSt').textContent = notes.length ? '推定のお手本（緑の帯）を表示中。精度は低めです。' : 'お手本の音程を検出できませんでした。';
 }
+/* karaoke database: kept apart from the song library (browser storage 'otobako-karaoke', one record per song) */
+const KD = { p: null, asked: false };
+const trackKey = t => `${t.size}|${Math.round((t.duration || 0) * 10)}|${t.fileName}`;
+function kdOpen() {
+  return KD.p || (KD.p = new Promise((res, rej) => {
+    const r = indexedDB.open('otobako-karaoke', 1);
+    r.onupgradeneeded = () => { for (const s of ['info', 'vocal', 'melody']) r.result.createObjectStore(s); };
+    r.onsuccess = () => res(r.result); r.onerror = () => { KD.p = null; rej(r.error); };
+  }));
+}
+async function kdTx(stores, mode, fn) {
+  const db = await kdOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(stores, mode); let rq;
+    try { rq = fn(...stores.map(s => tx.objectStore(s))); } catch (e) { rej(e); return; }
+    tx.oncomplete = () => res(rq && rq.result); tx.onerror = tx.onabort = () => rej(tx.error || new Error('保存に失敗'));
+  });
+}
+const kdGet = (store, key) => kdTx([store], 'readonly', s => s.get(key));
+function kdRemove(key) { return kdTx(['info', 'vocal', 'melody'], 'readwrite', (i, v, m) => { i.delete(key); v.delete(key); m.delete(key); }).catch(() => {}); }
+async function kdSave(key, title, vocal, melody) {
+  if (!KD.asked) { KD.asked = true; try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {} }
+  return kdTx(['info', 'vocal', 'melody'], 'readwrite', (i, v, m) => {
+    if (vocal) { v.put(vocal, key); i.put({ title, size: vocal.data.length, t: Date.now() }, key); }
+    if (melody) m.put(melody, key);
+  });
+}
+async function kdList() {
+  const db = await kdOpen();
+  return new Promise((res, rej) => { const s = db.transaction('info', 'readonly').objectStore('info'), out = [], rq = s.openCursor(); rq.onsuccess = () => { const c = rq.result; if (c) { out.push({ key: c.key, ...c.value }); c.continue(); } else res(out); }; rq.onerror = () => rej(rq.error); });
+}
+async function kdStat() {
+  try { const l = await kdList(), sum = l.reduce((a, b) => a + (b.size || 0), 0); $('#kaKdStat').textContent = `カラオケ用データベース：${l.length}曲・${(sum / 1048576).toFixed(1)} MB（曲のライブラリとは別に、この端末のブラウザ内に保存されます）`; }
+  catch (e) { $('#kaKdStat').textContent = 'カラオケ用データベースを開けませんでした。'; }
+}
+// older libraries kept this data inside the song library: move it over, then drop the tables
+async function kdMigrate() {
+  let names; try { names = new Set(q("SELECT name FROM sqlite_master WHERE type = 'table'").map(r => r.name)); } catch (e) { return; }
+  const hasV = names.has('vocal'), hasM = names.has('melody'); if (!hasV && !hasM) return;
+  opMark('カラオケデータの移動'); let moved = 0;
+  try {
+    if (hasM) for (const row of q('SELECT track_id AS id, hop, data FROM melody')) { const t = byId(row.id); if (t) await kdSave(trackKey(t), t.title, null, { hop: row.hop, data: row.data }); }
+    if (hasV) for (const { id } of q('SELECT track_id AS id FROM vocal')) {
+      const t = byId(id), v = q('SELECT sr, data FROM vocal WHERE track_id = ?', [id])[0];
+      if (t && v) { await kdSave(trackKey(t), t.title, { sr: v.sr, data: v.data }, null); moved++; }
+    }
+    if (hasV) run('DROP TABLE IF EXISTS vocal'); if (hasM) run('DROP TABLE IF EXISTS melody'); markDirty();
+    toast(moved ? `カラオケ用のデータ（${moved}曲）を専用のデータベースへ移しました。ライブラリを軽くするには、ライブラリ欄の「空き領域を整理」を押してください。` : 'カラオケ用の古いデータを整理しました。', 8000);
+  } catch (e) { kaMsg('カラオケデータの移動に失敗しました（' + ((e && (e.name || e.message)) || '不明') + '）。'); }
+  finally { opClear(); }
+}
+async function tidyDb() {
+  if (!DB) return;
+  const sz = () => q('PRAGMA page_count')[0].page_count * q('PRAGMA page_size')[0].page_size, mb = v => (v / 1048576).toFixed(1);
+  try {
+    const fl = q('PRAGMA freelist_count')[0].freelist_count * q('PRAGMA page_size')[0].page_size;
+    if (fl < 65536) { toast('整理できる空き領域はほとんどありません。', 3500); return; }
+    opMark('ライブラリの整理'); toast('整理しています…（大きいライブラリでは時間とメモリを使います）', 3000);
+    await new Promise(r => setTimeout(r, 60));
+    const before = sz(); run('VACUUM'); DB.run('PRAGMA foreign_keys = ON'); markDirty(); toast(`ライブラリを整理しました（${mb(before)} MB → ${mb(sz())} MB）。`, 6000);
+  } catch (e) { toast('整理できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。', 6000); }
+  finally { opClear(); }
+}
+async function kdExport() {
+  kaMsg(''); opMark('カラオケデータの書き出し');
+  try {
+    const list = await kdList(); if (!list.length) { kaMsg('書き出すカラオケデータがありません。'); return; }
+    const d = new SQL.Database();
+    d.run('CREATE TABLE kmeta(key TEXT PRIMARY KEY, value TEXT); CREATE TABLE kinfo(key TEXT PRIMARY KEY, title TEXT, size INTEGER, t INTEGER); CREATE TABLE kvocal(key TEXT PRIMARY KEY, sr INTEGER, data BLOB); CREATE TABLE kmelody(key TEXT PRIMARY KEY, hop REAL, data BLOB); INSERT INTO kmeta VALUES (\'app\', \'Otobako karaoke\')');
+    for (const it of list) {
+      const v = await kdGet('vocal', it.key), m = await kdGet('melody', it.key);
+      d.run('INSERT INTO kinfo VALUES (?, ?, ?, ?)', [it.key, it.title || '', it.size || 0, it.t || 0]);
+      if (v) d.run('INSERT INTO kvocal VALUES (?, ?, ?)', [it.key, v.sr, v.data]); if (m) d.run('INSERT INTO kmelody VALUES (?, ?, ?)', [it.key, m.hop, m.data]);
+    }
+    const bytes = d.export(); d.close(); await deliver(bytes, 'otobako-karaoke.sqlite');
+  } catch (e) { kaMsg('書き出せませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。曲数が多いとメモリ不足になることがあります。'); }
+  finally { opClear(); }
+}
+async function kdImport(file) {
+  kaMsg('');
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer()), d = new SQL.Database(bytes); let n = 0;
+    const rows = []; { const st = d.prepare('SELECT key, title FROM kinfo'); while (st.step()) rows.push(st.getAsObject()); st.free(); }
+    for (const it of rows) {
+      let v = null, m = null;
+      { const st = d.prepare('SELECT sr, data FROM kvocal WHERE key = ?', [it.key]); if (st.step()) v = st.getAsObject(); st.free(); }
+      { const st = d.prepare('SELECT hop, data FROM kmelody WHERE key = ?', [it.key]); if (st.step()) m = st.getAsObject(); st.free(); }
+      await kdSave(it.key, it.title, v, m); n++;
+    }
+    d.close(); toast(`カラオケデータを${n}曲分、読み込みました。`, 4000); kdStat(); kaLoadRef();
+  } catch (e) { kaMsg('カラオケデータとして読み込めませんでした。'); }
+}
+$('#kaKdOut').addEventListener('click', kdExport);
+$('#kaKdIn').addEventListener('click', () => $('#kaImpIn').click());
+$('#kaImpIn').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) kdImport(f); });
+$('#btnDbVac').addEventListener('click', tidyDb);
+$('#kaDelRef').addEventListener('click', async () => { const t = curTrack(); if (!t) return; guideOff(); await kdRemove(trackKey(t)); KA.ref = null; await kaLoadRef(); kdStat(); toast('この曲のお手本を削除しました。', 3000); });
+
 /* centre extraction: keep the part of the mix that is identical in both channels (usually the lead vocal) */
 const FFT = { N: 0, rev: null, cs: null, sn: null };
 function fftInit(N) {
@@ -2286,7 +2389,7 @@ function guideOff() {
 }
 async function guideOn() {
   const t = curTrack(); if (!t) return;
-  const row = q('SELECT data FROM vocal WHERE track_id = ?', [t.id])[0]; if (!row) { kaMsg('先に「お手本を解析」を実行してください。'); return; }
+  const row = await kdGet('vocal', trackKey(t)).catch(() => null); if (!row) { kaMsg('先に「お手本を解析」を実行してください。'); return; }
   if (GD.url) URL.revokeObjectURL(GD.url);
   try { await audioGraph(); guideGraph(); } catch (e) { kaMsg('お手本ボーカルを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
   GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true;
@@ -2301,25 +2404,27 @@ $('#kaGuideOff').value = GD.off; $('#kaGuideOT').textContent = GD.off;
 $('#kaGuideOff').addEventListener('input', e => { GD.off = +e.target.value; $('#kaGuideOT').textContent = GD.off; try { localStorage.setItem('otobako-guide-off', GD.off); } catch (er) {} guideSync(true); });
 
 function kaUiVocal(has) {
-  $('#kaGuide').hidden = !has; $('#kaGuideS').hidden = !has; $('#kaGuideO').hidden = !has; $('#kaReVoc').hidden = !has; $('#kaVocStr').hidden = !has && false;
+  $('#kaGuide').hidden = !has; $('#kaGuideS').hidden = !has; $('#kaGuideO').hidden = !has; $('#kaReVoc').hidden = !has; $('#kaDelRef').hidden = !has; $('#kaVocStr').hidden = !has && false;
 }
-function kaLoadRef() {
-  KA.anTok++; KA.analyzing = false; guideOff(); const t = curTrack(); KA.refId = t ? t.id : null; if (KA.key) keySet(0);
-  let row = null, vr = null; try { if (t) { row = q('SELECT hop, data FROM melody WHERE track_id = ?', [t.id])[0]; vr = q('SELECT length(data) AS n FROM vocal WHERE track_id = ?', [t.id])[0]; } } catch (e) {}
-  kaSetRef(row ? row.data : null, row ? row.hop : 0); kaUiVocal(!!vr); $('#kaRefBtn').disabled = !t;
-  if (vr && !row) $('#kaRefSt').textContent = '抽出済みのボーカル音声があります（' + (vr.n / 1048576).toFixed(1) + ' MB）。音程を解析します。';
+async function kaLoadRef() {
+  const my = ++KA.anTok; KA.analyzing = false; guideOff(); const t = curTrack(); KA.refId = t ? t.id : null; if (KA.key) keySet(0);
+  kaSetRef(null); kaUiVocal(false); $('#kaRefBtn').disabled = !t; if (!t) return;
+  let mel = null, info = null; try { const k = trackKey(t); mel = await kdGet('melody', k); info = await kdGet('info', k); } catch (e) {}
+  if (KA.anTok !== my) return;
+  kaSetRef(mel ? mel.data : null, mel ? mel.hop : 0); kaUiVocal(!!info);
+  if (info && !mel) $('#kaRefSt').textContent = '抽出済みのボーカル音声があります（' + (info.size / 1048576).toFixed(1) + ' MB）。音程を解析します。';
 }
 async function kaAnalyze(reExtract) {
   if (KA.analyzing) { KA.anTok++; KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本を解析（ボーカル抽出＋音程）'; $('#kaRefSt').textContent = '解析を中止しました。'; opClear(); return; }
   const t = curTrack(); if (!t) return;
-  const my = ++KA.anTok, id = t.id; KA.analyzing = true; kaMsg('');
+  const my = ++KA.anTok, id = t.id, key = trackKey(t); KA.analyzing = true; kaMsg('');
   { const sv = $('#kaRefSens').value; KA.cfg = sv === 'strict' ? { clar: 0.8, dthr: 0.2 } : sv === 'high' ? { clar: 0.4, dthr: 0.4 } : { clar: 0.5, dthr: 0.35 }; }
   const gamma = { weak: 1, mid: 2, strong: 4 }[$('#kaVocStr').value] || 2;
   $('#kaRefBtn').textContent = '解析を中止'; $('#kaRefSt').textContent = '音声を読み込み中…'; opMark('お手本の解析');
   const alive = () => KA.anTok === my && KA.open;
   try {
     let x = null, stored = null, fresh = false;
-    if (reExtract !== true) { const vr = q('SELECT data FROM vocal WHERE track_id = ?', [id])[0]; if (vr) { stored = vr.data; x = wavToF32(stored); } }
+    if (reExtract !== true) { const vr = await kdGet('vocal', key); if (vr) { stored = vr.data; x = wavToF32(stored); } }
     if (!x) {
       opMark('お手本の解析（音声の読み込み）');
       const row = q('SELECT data FROM audio WHERE track_id = ?', [id])[0]; if (!row) throw new Error('音声データなし');
@@ -2372,15 +2477,14 @@ async function kaAnalyze(reExtract) {
     }
     if (!alive()) return;
     x = null; opMark('お手本の解析（ライブラリへの保存）');
-    if (fresh) { run('INSERT OR REPLACE INTO vocal(track_id, sr, data) VALUES (?, ?, ?)', [id, REF_SR, stored]); kaUiVocal(true); }
-    run('INSERT OR REPLACE INTO melody(track_id, hop, data) VALUES (?, ?, ?)', [id, REF_HOP / REF_SR, out]); markDirty();
+    await kdSave(key, t.title, fresh ? { sr: REF_SR, data: stored } : null, { hop: REF_HOP / REF_SR, data: out }); kaUiVocal(true); kdStat();
     KA.analyzing = false; kaSetRef(out, REF_HOP / REF_SR); opClear(); kaUiVocal(true);
     let vo = 0; for (let k = 0; k < frames; k++) if (out[k]) vo++;
-    if (KA.ref && KA.ref.notes.length) $('#kaRefSt').textContent = `解析結果：${KA.ref.notes.length}音、声らしい部分 ${Math.round(vo / Math.max(1, frames) * 100)}%（曲の長さ ${fmtT(n / REF_SR)}）。ボーカル音声 ${(stored.length / 1048576).toFixed(1)} MB もライブラリに保存しました。`;
-    toast(KA.ref && KA.ref.notes.length ? 'お手本（ボーカル音声と音程）を保存しました' : 'お手本の音程を検出できませんでした', 4000);
+    if (KA.ref && KA.ref.notes.length) $('#kaRefSt').textContent = `解析結果：${KA.ref.notes.length}音、声らしい部分 ${Math.round(vo / Math.max(1, frames) * 100)}%（曲の長さ ${fmtT(n / REF_SR)}）。ボーカル音声 ${(stored.length / 1048576).toFixed(1)} MB をカラオケ用データベースに保存しました。`;
+    toast(KA.ref && KA.ref.notes.length ? 'お手本（ボーカル音声と音程）をカラオケ用データベースに保存しました' : 'お手本の音程を検出できませんでした', 4000);
   } catch (e) {
     opClear(); KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本を解析（ボーカル抽出＋音程）'; $('#kaRefSt').textContent = '';
-    kaMsg('お手本を解析できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。この形式の音声は解析に対応していない可能性があります。');
+    kaMsg(e && e.name === 'QuotaExceededError' ? '端末の保存容量が足りません。不要な曲のお手本を削除してください。' : 'お手本を解析できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。この形式の音声は解析に対応していない可能性があります。');
   }
 }
 $('#kaRefBtn').addEventListener('click', () => kaAnalyze(false));
