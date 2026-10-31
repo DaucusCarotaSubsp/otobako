@@ -903,22 +903,14 @@ async function loadDbFile(file, handle, startup) {
   resetSession(); updateDbUi();
   toast(`${S.tracks.length}曲を読み込みました` + (fileHandle ? '。変更は自動で保存されます。' : '。'), 4000);
 }
-// iPhone/iPadのホーム画面アプリでは <a download> が動かないため、共有シート（「ファイルに保存」）を使う
-async function deliver(bytes, name) {
-  try {
-    if (navigator.canShare && navigator.share) {
-      const f = new File([bytes], name, { type: 'application/octet-stream' });
-      if (navigator.canShare({ files: [f] })) {
-        try { await navigator.share({ files: [f], title: name }); return true; }
-        catch (e) { if (e && e.name === 'AbortError') return false; }
-      }
-    }
-  } catch (e) {}
-  download(bytes, name); return true;
+// 保存はダウンロードで行う。メモリを節約するため、読み込んだままのファイルはそのまま、変更があるときだけ書き出す。
+async function deliver(src, name) {
+  const blob = src instanceof Blob ? src : new Blob([typeof src === 'function' ? src() : src], { type: 'application/vnd.sqlite3' });
+  download(blob, name); return true;
 }
-function download(bytes, name) {
-  const a = h('a', { href: URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' })), download: name });
-  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+function download(blob, name) {
+  const a = h('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60000);
 }
 async function saveDb(auto) {
   if (!DB || D.saving) return;
@@ -933,8 +925,8 @@ async function saveDb(auto) {
       const bytes = exportDb(), w = await fileHandle.createWritable(); await w.write(bytes); await w.close(); saved = true;
       if (!auto) toast('保存しました（以降は自動で保存されます）');
     } else if (!auto) {
-      opMark('ファイルの保存'); saved = await deliver(exportDb(), D.name); opClear();
-      if (saved) toast(navigator.canShare && navigator.share ? '共有シートで「ファイルに保存」を選んでください' : 'ファイルをダウンロードしました', 4500);
+      opMark('ファイルの保存'); saved = await deliver(D.src && D.srcVer === D.ver ? D.src : () => exportDb(), D.name); opClear();
+      if (saved) toast('ファイルをダウンロードしました', 4500);
     }
     if (saved && D.ver === ver) D.dirty = false;
   } catch (e) { opClear(); toast('保存できませんでした（' + (e && (e.name || e.message) || '不明') + '）。', 6000); }
