@@ -191,6 +191,13 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .np-meta p{color:var(--dim)}
 .np-opts{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .np-ly{min-height:0;min-width:0;position:relative}
+.limp{position:fixed;inset:0;z-index:60;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.limp[hidden]{display:none}
+.limp-box{width:min(440px,100%);background:var(--raise);border:1px solid var(--line);border-radius:16px;padding:18px;display:grid;gap:12px;box-shadow:var(--shadow)}
+.limp-box h3{font-size:16px;font-weight:900}
+.limp-box p{font-size:12px;color:var(--dim);line-height:1.6;overflow-wrap:anywhere}
+.limp-bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden}.limp-bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+
 .ka{position:fixed;inset:0;z-index:45;background:var(--bg);display:grid;grid-template-rows:auto minmax(170px,1fr) minmax(170px,34vh) auto;gap:10px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;align-content:start;
   padding:max(12px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(12px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
 .ka[hidden]{display:none}
@@ -450,6 +457,12 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
       <p class="ka-msg" id="kaMsg" hidden></p>
     </div>
   </section>
+
+  <div class="limp" id="imp" hidden role="dialog" aria-modal="true" aria-label="大容量ライブラリの取り込み">
+    <div class="limp-box"><h3 id="impTitle">大容量ライブラリを取り込み中</h3><div class="limp-bar"><i id="impBar"></i></div><p id="impTx"></p>
+      <p>少しずつ読み込んでは端末内に保存し、メモリを解放しながら進めます。途中で止めても、同じファイルをもう一度開くと続きから取り込みます。</p>
+      <button class="btn" type="button" id="impCancel">中止</button></div>
+  </div>
 
   <footer class="bar" id="bar">
     <button class="binfo" id="binfo" type="button" aria-label="再生中の画面を開く">
@@ -865,7 +878,7 @@ async function insertDraft(d) {
     run('INSERT INTO tracks(title, artist, album, album_artist, year, track_no, genre, duration, file_name, mime, size, lrc, cover_id, bpm, added) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [d.title, d.artist || '', d.album || '', d.albumArtist || '', d.year || '', d.track || 0, d.genre || '', d.duration || 0, d.fileName, audioMime(d.file), d.size, d.lrc || '', coverId, d.bpm || 0, d.added]);
     const id = lastId();
-    run('INSERT INTO audio(track_id, data) VALUES (?, ?)', [id, bytes]);
+    if (D.lean) await auPut(D.libid, id, new Blob([bytes], { type: audioMime(d.file) })); else run('INSERT INTO audio(track_id, data) VALUES (?, ?)', [id, bytes]);
     run('COMMIT'); return id;
   } catch (e) { try { run('ROLLBACK'); } catch (e2) {} throw e; }
 }
@@ -890,10 +903,11 @@ function resetSession() {
 }
 function newDb() {
   const old = DB; openMemory(new SQL.Database()); if (old) old.close();
-  fileHandle = null; D.name = 'otobako.sqlite'; D.dirty = false; D.isStartup = false; D.src = null; clearTimeout(D.timer);
+  fileHandle = null; D.name = 'otobako.sqlite'; D.dirty = false; D.isStartup = false; D.src = null; D.lean = false; D.libid = null; clearTimeout(D.timer);
   resetSession(); updateDbUi();
 }
 async function loadDbFile(file, handle, startup) {
+  if (!startup && file.size >= LEAN.ask) { const r = await leanOffer(file); if (r === 'cancel') return; if (r === 'lean') return leanLoad(file); }
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (new TextDecoder('latin1').decode(bytes.subarray(0, 16)) !== SQLITE_MAGIC) throw new Error('not sqlite');
@@ -906,6 +920,7 @@ async function loadDbFile(file, handle, startup) {
     } catch (e) { DB = old; nd.close(); throw e; }
     if (old) old.close();
   } catch (e) { toast('Otobakoのライブラリ（SQLiteファイル）として開けませんでした。', 5000); return; }
+  leanDetect();
   fileHandle = null;
   if (handle) {
     try { if (handle.requestPermission && (await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') handle = null; } catch (e) { handle = null; }
@@ -1336,6 +1351,18 @@ function setCurrent(t, play) {
   if (!t) return;
   S.cur = t.id;
   if (curUrl) URL.revokeObjectURL(curUrl);
+  if (D.lean) {
+    // iOS only lets play() start inside the tap, so start a silent clip right now and swap in the real audio once it is read
+    audio.src = SILENT_WAV; if (play) audio.play().catch(() => {});
+    const my = S.loadTok = (S.loadTok | 0) + 1;
+    auGet(t.id).then(b => {
+      if (S.loadTok !== my) return;
+      if (!b) { toast('この端末に音声データがありません。大容量ライブラリを取り込み直してください。', 5000); return; }
+      curUrl = URL.createObjectURL(b); audio.src = curUrl;
+      if (play) audio.play().catch(() => toast('この曲は再生できませんでした。', 4000));
+    }).catch(() => toast('音声データを読み出せませんでした。', 5000));
+    loadLyrics(); updateBar(); markPlaying(); mediaSession(t); return;
+  }
   const r = q('SELECT data FROM audio WHERE track_id = ?', [t.id])[0];
   if (!r) { toast('音声データが見つかりません。', 4000); return; }
   curUrl = URL.createObjectURL(new Blob([r.data], { type: t.mime || 'audio/mpeg' })); audio.src = curUrl;
@@ -1757,7 +1784,7 @@ async function saveEdit() {
 async function deleteTrack() {
   const id = ed.id; if (id == null || !byId(id)) return;
   closeEdit();
-  try { const tt = byId(id); if (tt) kdRemove(trackKey(tt)); } catch (e) {} run('DELETE FROM playlist_tracks WHERE track_id = ?', [id]); run('DELETE FROM audio WHERE track_id = ?', [id]); run('DELETE FROM tracks WHERE id = ?', [id]); pruneCovers();
+  try { const tt = byId(id); if (tt) kdRemove(trackKey(tt)); } catch (e) {} run('DELETE FROM playlist_tracks WHERE track_id = ?', [id]); if (D.lean) auDel(id); run('DELETE FROM audio WHERE track_id = ?', [id]); run('DELETE FROM tracks WHERE id = ?', [id]); pruneCovers();
   markDirty(); loadTracks();
   S.queue = S.queue.filter(x => x !== id); S.base = S.base.filter(x => x !== id);
   if (S.cur === id) { audio.pause(); audio.removeAttribute('src'); if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; } S.cur = null; S.lyr = null; setNp(false); renderLyrics(); }
@@ -1887,6 +1914,162 @@ window.addEventListener('drop', e => { if (!hasFiles(e)) return; e.preventDefaul
 new ResizeObserver(() => document.documentElement.style.setProperty('--barh', $('#bar').offsetHeight + 'px')).observe($('#bar'));
 
 /* ---------- boot ---------- */
+
+/* ---------- big libraries: piece-by-piece reading ---------- */
+const LEAN = { ask: 400 * 1048576, force: 1024 * 1048576 };
+window.__lean = LEAN;
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+const AU = { p: null };
+function auOpen() {
+  return AU.p || (AU.p = new Promise((res, rej) => { const r = indexedDB.open('otobako-audio', 1); r.onupgradeneeded = () => r.result.createObjectStore('a'); r.onsuccess = () => res(r.result); r.onerror = () => { AU.p = null; rej(r.error); }; }));
+}
+async function auTx(mode, fn) {
+  const db = await auOpen();
+  return new Promise((res, rej) => { const tx = db.transaction('a', mode); let rq; try { rq = fn(tx.objectStore('a')); } catch (e) { rej(e); return; } tx.oncomplete = () => res(rq && rq.result); tx.onerror = tx.onabort = () => rej(tx.error || new Error('保存に失敗')); });
+}
+const auGet = id => auTx('readonly', s => s.get(D.libid + ':' + id));
+const auPut = (lib, id, blob) => auTx('readwrite', s => s.put(blob, lib + ':' + id));
+const auDel = id => { auTx('readwrite', s => s.delete(D.libid + ':' + id)).catch(() => {}); };
+const auHas = (lib, id) => auTx('readonly', s => s.count(lib + ':' + id)).then(n => n > 0);
+async function getAudioBytes(id) {
+  if (D.lean) { const b = await auGet(id); return b ? new Uint8Array(await b.arrayBuffer()) : null; }
+  const r = q('SELECT data FROM audio WHERE track_id = ?', [id])[0]; return r ? r.data : null;
+}
+function leanDetect() {
+  D.lean = false; D.libid = null;
+  try {
+    const m = Object.fromEntries(q("SELECT key, value FROM meta WHERE key IN ('audio_store', 'libid')").map(r => [r.key, r.value]));
+    if (m.audio_store === 'idb' && m.libid) {
+      D.lean = true; D.libid = m.libid;
+      if (S.tracks.length || true) auHas(m.libid, (q('SELECT id FROM tracks LIMIT 1')[0] || {}).id).then(ok => { if (!ok && q('SELECT COUNT(*) AS n FROM tracks')[0].n) toast('このライブラリは音声を含まないメタデータのみです。曲の音声が入っている端末で開いてください。', 9000); }).catch(() => {});
+    }
+  } catch (e) {}
+}
+
+const rd32 = (b, o) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
+function varint(b, o) { let v = 0; for (let i = 0; i < 8; i++) { const c = b[o + i]; v = v * 128 + (c & 0x7f); if (!(c & 0x80)) return [v, o + i + 1]; } return [v * 256 + b[o + 8], o + 9]; }
+function intBE(b, o, n) { if (n > 6) { let v = 0n; for (let i = 0; i < n; i++) v = (v << 8n) | BigInt(b[o + i]); if (b[o] & 0x80) v -= 1n << BigInt(8 * n); return Number(v); } let v = 0; for (let i = 0; i < n; i++) v = v * 256 + b[o + i]; if (b[o] & 0x80) v -= Math.pow(2, 8 * n); return v; }
+class SqliteReader {
+  constructor(file) { this.f = file; this.cache = new Map(); this.dec = new TextDecoder('utf-8'); }
+  async read(off, len) { const end = Math.min(this.f.size, off + len); if (end <= off) return new Uint8Array(0); return new Uint8Array(await this.f.slice(off, end).arrayBuffer()); }
+  async init() {
+    const h = await this.read(0, 100);
+    if (new TextDecoder('latin1').decode(h.subarray(0, 16)) !== SQLITE_MAGIC) throw new Error('not sqlite');
+    this.ps = (h[16] << 8) | h[17]; if (this.ps === 1) this.ps = 65536; this.U = this.ps - h[20];
+    if (rd32(h, 56) > 1) throw new Error('UTF-16のファイルには対応していません');
+  }
+  async page(n) { let b = this.cache.get(n); if (b) return b; b = await this.read((n - 1) * this.ps, this.ps); if (this.cache.size > 400) this.cache.delete(this.cache.keys().next().value); this.cache.set(n, b); return b; }
+  async *walk(root) {
+    const b = await this.page(root), hd = root === 1 ? 100 : 0, type = b[hd], n = (b[hd + 3] << 8) | b[hd + 4];
+    if (type === 0x0D) { for (let i = 0; i < n; i++) yield this.cell(b, (b[hd + 8 + 2 * i] << 8) | b[hd + 9 + 2 * i]); }
+    else if (type === 0x05) { for (let i = 0; i < n; i++) yield* this.walk(rd32(b, (b[hd + 12 + 2 * i] << 8) | b[hd + 13 + 2 * i])); yield* this.walk(rd32(b, hd + 8)); }
+    else throw new Error('想定外のページ形式 ' + type);
+  }
+  cell(b, off) {
+    const [P, o1] = varint(b, off), [rowid, o2] = varint(b, o1), U = this.U, X = U - 35; let local = P;
+    if (P > X) { const M = Math.floor((U - 12) * 32 / 255) - 23, K = M + ((P - M) % (U - 4)); local = K <= X ? K : M; }
+    return { rowid, P, local: b.subarray(o2, o2 + local), ovf: P > local ? rd32(b, o2 + local) : 0 };
+  }
+  async readPayload(c, start, end) {
+    const out = new Uint8Array(end - start); let pos = 0;
+    if (start < c.local.length) { const part = c.local.subarray(start, Math.min(end, c.local.length)); out.set(part, 0); pos = part.length; }
+    else if (start > c.local.length) throw new Error('unsupported');
+    let remaining = end - start - pos, pn = c.ovf, chunk = 64; const U4 = this.U - 4;
+    while (remaining > 0) {
+      if (!pn) throw new Error('overflow chain ended');
+      const cnt = Math.min(chunk, Math.ceil(remaining / U4)), buf = await this.read((pn - 1) * this.ps, cnt * this.ps), got = Math.floor(buf.length / this.ps);
+      let next = 0, used = 0;
+      for (let i = 0; i < got; i++) {
+        const o = i * this.ps, take = Math.min(U4, remaining); next = rd32(buf, o);
+        out.set(buf.subarray(o + 4, o + 4 + take), pos); pos += take; remaining -= take; used++;
+        if (remaining <= 0) break; if (next !== pn + i + 1) break;
+      }
+      chunk = used >= cnt ? Math.min(256, chunk * 2) : Math.max(1, used);   // adapt to how contiguous the chain is
+      pn = next; if (used === 0) throw new Error('read error');
+    }
+    return out;
+  }
+  async full(c) { return c.P <= c.local.length ? c.local : this.readPayload(c, 0, c.P); }
+  header(buf) { let [hs, o] = varint(buf, 0); const t = []; while (o < hs) { const [x, o2] = varint(buf, o); t.push(x); o = o2; } return { hs, t }; }
+  async record(c) {
+    const buf = await this.full(c), { hs, t } = this.header(buf); let p = hs; const vals = [];
+    for (const x of t) {
+      let v;
+      if (x === 0) v = null; else if (x >= 1 && x <= 6) { const n = [0, 1, 2, 3, 4, 6, 8][x]; v = intBE(buf, p, n); p += n; }
+      else if (x === 7) { v = new DataView(buf.buffer, buf.byteOffset + p, 8).getFloat64(0); p += 8; } else if (x === 8) v = 0; else if (x === 9) v = 1;
+      else if (x >= 12) { const n = x % 2 === 0 ? (x - 12) / 2 : (x - 13) / 2, sl = buf.subarray(p, p + n); v = x % 2 === 0 ? sl.slice() : this.dec.decode(sl); p += n; }
+      vals.push(v);
+    }
+    return { rowid: c.rowid, vals };
+  }
+  blobSpan(c) {   // where the (last) blob column sits inside the payload, without reading the blob
+    const { hs, t } = this.header(c.local); let p = hs, best = null;
+    for (const x of t) { let n = 0; if (x >= 1 && x <= 6) n = [0, 1, 2, 3, 4, 6, 8][x]; else if (x === 7) n = 8; else if (x >= 12) n = x % 2 === 0 ? (x - 12) / 2 : (x - 13) / 2; if (x >= 12 && x % 2 === 0) best = { off: p, len: n }; p += n; }
+    return best;
+  }
+  async tables() { const out = {}; for await (const c of this.walk(1)) { const r = (await this.record(c)).vals; if (r[0] === 'table') out[r[1]] = { root: r[3], sql: r[4] }; } return out; }
+}
+
+const IMP = { abort: false };
+const impShow = (title, pct, tx) => { $('#imp').hidden = false; $('#impTitle').textContent = title; $('#impBar').style.width = Math.max(0, Math.min(100, pct)) + '%'; $('#impTx').textContent = tx || ''; };
+$('#impCancel').addEventListener('click', () => { IMP.abort = true; $('#impTx').textContent = '中止しています…'; });
+async function leanOffer(file) {
+  const gb = (file.size / 1073741824).toFixed(2) + ' GB';
+  if (file.size >= LEAN.force) return confirm(`このライブラリは ${gb} あり、全体をメモリに読み込むと端末（特にiPhone）では動作しません。\n\n「分割読み込み」で取り込みます。曲の音声はこの端末のブラウザ内に少しずつ保存され、SQLiteとして保存できるのは曲の情報（音声を除く）だけになります。\n\n続けますか？`) ? 'lean' : 'cancel';
+  return confirm(`このライブラリは ${gb} あります。\n\nOK：分割読み込み（推奨）― 少しずつ読み込んでメモリを節約します。曲の音声は端末のブラウザ内に保存され、SQLiteとして保存できるのは曲の情報（音声を除く）だけになります。\nキャンセル：従来どおり全部をメモリに読み込む（端末によっては落ちることがあります）`) ? 'lean' : 'normal';
+}
+async function leanId(file) {
+  const d = new TextEncoder().encode(`${file.name}|${file.size}|${file.lastModified}`), h = new Uint8Array(await crypto.subtle.digest('SHA-1', d));
+  return Array.from(h.subarray(0, 10), x => x.toString(16).padStart(2, '0')).join('');
+}
+async function leanLoad(file) {
+  const old = DB; let nd = null; IMP.abort = false;
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  try {
+    impShow('大容量ライブラリを取り込み中', 0, '構造を確認しています…'); opMark('大容量ライブラリの取り込み');
+    const rd = new SqliteReader(file); await rd.init(); const tabs = await rd.tables();
+    if (!tabs.tracks || !tabs.audio || !tabs.covers) throw new Error('Otobakoのライブラリではありません');
+    const libid = await leanId(file);
+    nd = new SQL.Database(); DB = nd; openMemory(nd);
+    const copy = async (name, pk) => {
+      if (!tabs[name]) return; const cols = q(`PRAGMA table_info(${name})`).map(c => c.name); let n = 0; run('BEGIN');
+      try {
+        for await (const c of rd.walk(tabs[name].root)) {
+          if (IMP.abort) throw new Error('中止しました'); const rec = await rd.record(c); let v = rec.vals; if (pk >= 0) v[pk] = rec.rowid; v = v.slice(0, cols.length);
+          run(`INSERT OR REPLACE INTO ${name}(${cols.slice(0, v.length).join(',')}) VALUES (${v.map(() => '?').join(',')})`, v);
+          if (++n % 100 === 0) { impShow('曲の情報を読み込み中', 5, `${name}：${n}件`); await tick(); }
+        }
+        run('COMMIT');
+      } catch (e) { try { run('ROLLBACK'); } catch (e2) {} throw e; }
+    };
+    await copy('covers', 0); await copy('tracks', 0); await copy('playlists', 0); await copy('playlist_tracks', -1);
+    run("INSERT OR REPLACE INTO meta(key, value) VALUES ('audio_store', 'idb'), ('libid', ?)", [libid]);
+    const tot = q('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS s FROM tracks')[0]; let done = 0, doneB = 0, skipped = 0;
+    for await (const c of rd.walk(tabs.audio.root)) {
+      if (IMP.abort) throw new Error('中止しました');
+      const tr = q('SELECT mime, size, title FROM tracks WHERE id = ?', [c.rowid])[0]; if (!tr) continue;
+      const mb = x => (x / 1048576).toFixed(0);
+      if (!(await auHas(libid, c.rowid))) {
+        const sp = rd.blobSpan(c); if (!sp) throw new Error('音声データを読み取れません');
+        impShow('音声を端末に保存中', 10 + 88 * (doneB / Math.max(1, tot.s)), `${done}/${tot.n}曲（${mb(doneB)} / ${mb(tot.s)} MB）\n${tr.title}`);
+        const bytes = await rd.readPayload(c, sp.off, sp.off + sp.len);
+        await auPut(libid, c.rowid, new Blob([bytes], { type: tr.mime || 'audio/mpeg' }));
+      } else skipped++;
+      done++; doneB += tr.size || 0; if (done % 4 === 0) await tick();
+    }
+    let missing = 0; for (const t of q('SELECT id FROM tracks')) if (!(await auHas(libid, t.id))) missing++;
+    if (old && old !== nd) old.close();
+    D.lean = true; D.libid = libid; fileHandle = null; D.name = file.name; D.dirty = false; D.src = null; clearTimeout(D.timer);
+    await kv('readwrite', s => s.put({ name: D.name, blob: new Blob([exportDb()], { type: 'application/vnd.sqlite3' }) }, 'startup')); D.copyVer = D.ver; D.isStartup = true; D.pending = null;
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+    resetSession(); updateDbUi(); impShow('', 100, ''); $('#imp').hidden = true;
+    toast(`${S.tracks.length}曲を取り込みました` + (missing ? `（音声が見つからない曲が${missing}曲あります）` : '') + (skipped ? `。${skipped}曲は取り込み済みのためスキップしました` : '') + '。次回からは起動時に自動で開きます。', 8000);
+  } catch (e) {
+    if (nd && DB === nd) { DB = old; try { nd.close(); } catch (e2) {} }
+    $('#imp').hidden = true; resetSession(); updateDbUi();
+    toast(IMP.abort ? '取り込みを中止しました。同じファイルをもう一度開くと続きから取り込みます。' : '大容量ライブラリを取り込めませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。', 9000);
+  } finally { opClear(); }
+}
 
 /* ---------- karaoke ---------- */
 window.__ka = null;
@@ -2432,8 +2615,8 @@ async function kaAnalyze(reExtract) {
     if (reExtract !== true) { const vr = await kdGet('vocal', key); if (vr) { stored = vr.data; x = wavToF32(stored); } }
     if (!x) {
       opMark('お手本の解析（音声の読み込み）');
-      const row = q('SELECT data FROM audio WHERE track_id = ?', [id])[0]; if (!row) throw new Error('音声データなし');
-      const bytes = row.data, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext, oc = new OAC(2, REF_SR, REF_SR);
+      const row = await getAudioBytes(id); if (!row) throw new Error('音声データなし');
+      const bytes = row, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext, oc = new OAC(2, REF_SR, REF_SR);
       const dec = ab => new Promise((res, rej) => { const p = oc.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); });
       const chunks = mp3Chunks(bytes, KA.chunkBytes);
       let cap = Math.ceil(((t.duration || 300) + 5) * REF_SR); x = new Float32Array(cap); let pos = 0, bad = 0;
