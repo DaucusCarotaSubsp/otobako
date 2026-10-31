@@ -421,7 +421,8 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
       </details>
       <div class="ka-vc">
         <button class="btn sm" type="button" id="kaVc" aria-pressed="false">ボーカルを消す：オフ</button>
-        <button class="btn sm" type="button" id="kaRefBtn">お手本の音程を解析</button><span class="ka-note" id="kaRefSt"></span>
+        <button class="btn sm" type="button" id="kaRefBtn">お手本の音程を解析</button>
+        <select id="kaRefSens" aria-label="解析の感度" class="btn sm"><option value="strict">感度：低（ノイズ少なめ）</option><option value="mid" selected>感度：標準</option><option value="high">感度：高（伴奏が厚い曲向け）</option></select><span class="ka-note" id="kaRefSt"></span>
         <label id="kaVcS" hidden>消す強さ<input type="range" id="kaVcAmt" min="0" max="100" value="100"></label>
       </div>
       <p class="ka-note" id="kaVcHint" hidden>中央に定位した音（主にボーカル）を打ち消す簡易処理です。伴奏の中央の音（ベース・キックなど）や、コーラスの一部が変わることがあります。再生は常にモノラル風になります。</p>
@@ -1868,7 +1869,7 @@ new ResizeObserver(() => document.documentElement.style.setProperty('--barh', $(
 /* ---------- karaoke ---------- */
 window.__ka = null;
 const KA = { open: false, stream: null, ctx: null, an: null, src: null, mon: null, buf: null, d: null, raf: 0, fc: 0,
-  hist: [], ref: null, shift: 0, dsamp: [], sc: { n: 0, hit: 0 }, anTok: 0, analyzing: false, center: 60, minM: null, maxM: null, last: null, lyrSrc: null, words: null, idx: -2, cEl: null, wk: null, lv: 0, med: [] };
+  cfg: { clar: 0.5, dthr: 0.35 }, hist: [], ref: null, shift: 0, dsamp: [], sc: { n: 0, hit: 0 }, anTok: 0, analyzing: false, center: 60, minM: null, maxM: null, last: null, lyrSrc: null, words: null, idx: -2, cEl: null, wk: null, lv: 0, med: [] };
 window.__ka = KA;
 const NOTE_N = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 const noteName = m => { const r = Math.round(m); return NOTE_N[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1); };
@@ -2131,7 +2132,7 @@ function yinRef(x, off, d) {
     run += s; d[tau] = run ? s * tau / run : 1;
   }
   for (let tau = REF_TAU_MIN; tau < REF_TAU_MAX; tau++) {
-    if (d[tau] < 0.2) {
+    if (d[tau] < KA.cfg.dthr) {
       while (tau + 1 < REF_TAU_MAX && d[tau + 1] < d[tau]) tau++;
       const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c;
       return { f: REF_SR / (den ? tau + (a - c) / (2 * den) : tau), clarity: 1 - b };
@@ -2178,6 +2179,7 @@ async function kaAnalyze() {
   if (KA.analyzing) { KA.anTok++; KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本の音程を解析'; $('#kaRefSt').textContent = '解析を中止しました。'; opClear(); return; }
   const t = curTrack(); if (!t) return;
   const my = ++KA.anTok, id = t.id; KA.analyzing = true; kaMsg('');
+  { const sv = $('#kaRefSens').value; KA.cfg = sv === 'strict' ? { clar: 0.8, dthr: 0.2 } : sv === 'high' ? { clar: 0.4, dthr: 0.4 } : { clar: 0.5, dthr: 0.35 }; }
   $('#kaRefBtn').textContent = '解析を中止'; $('#kaRefSt').textContent = '音声を読み込み中…'; opMark('お手本の音程の解析');
   const alive = () => KA.anTok === my && KA.open;
   try {
@@ -2186,8 +2188,9 @@ async function kaAnalyze() {
     const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext, oc = new OAC(2, REF_SR, REF_SR);
     const buf = await new Promise((res, rej) => { const p = oc.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); });
     if (!alive()) return;
-    const n = buf.length, L = buf.getChannelData(0), Rr = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, x = new Float32Array(n);
-    for (let i = 0; i < n; i++) x[i] = (L[i] + Rr[i]) * 0.5;
+    const L = buf.getChannelData(0), Rr = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, ratio = buf.sampleRate / REF_SR, n = Math.floor(buf.length / ratio), x = new Float32Array(n);
+    if (ratio === 1) for (let i = 0; i < n; i++) x[i] = (L[i] + Rr[i]) * 0.5;
+    else for (let i = 0; i < n; i++) { const a = Math.floor(i * ratio), b = Math.max(a + 1, Math.floor((i + 1) * ratio)); let s = 0; for (let j = a; j < b; j++) s += L[j] + Rr[j]; x[i] = s / (2 * (b - a)); }
     const hp = bqCoef('hp', 130, REF_SR, 0.707), lp = bqCoef('lp', 1100, REF_SR, 0.707);
     bqRun(x, hp); bqRun(x, hp); bqRun(x, lp);
     const frames = Math.max(0, Math.floor((n - REF_W - REF_TAU_MAX) / REF_HOP)), rmsA = new Float32Array(frames); let sum = 0;
@@ -2195,7 +2198,7 @@ async function kaAnalyze() {
     const gate = Math.max(0.002, (sum / Math.max(1, frames)) * 0.25), d = new Float32Array(REF_TAU_MAX + 2), mm = new Float32Array(frames).fill(NaN);
     let tick = performance.now();
     for (let k = 0; k < frames; k++) {
-      if (rmsA[k] >= gate) { const r = yinRef(x, k * REF_HOP, d); if (r && r.clarity >= 0.8 && r.f >= 80 && r.f <= 1100) mm[k] = 69 + 12 * Math.log2(r.f / 440); }
+      if (rmsA[k] >= gate) { const r = yinRef(x, k * REF_HOP, d); if (r && r.clarity >= KA.cfg.clar && r.f >= 80 && r.f <= 1100) mm[k] = 69 + 12 * Math.log2(r.f / 440); }
       if (performance.now() - tick > 40) { await new Promise(r => setTimeout(r, 0)); tick = performance.now(); if (!alive()) return; $('#kaRefSt').textContent = '解析中 ' + Math.round(k / frames * 100) + '%（長い曲は時間がかかります）'; }
     }
     // smooth: 5-frame median over voiced neighbours, then pull octave jumps toward the 1 s local median
@@ -2210,6 +2213,8 @@ async function kaAnalyze() {
     if (!alive()) return;
     run('INSERT OR REPLACE INTO melody(track_id, hop, data) VALUES (?, ?, ?)', [id, REF_HOP / REF_SR, out]); markDirty();
     KA.analyzing = false; kaSetRef(out, REF_HOP / REF_SR); opClear();
+    let vo = 0; for (let k = 0; k < frames; k++) if (out[k]) vo++;
+    if (KA.ref && KA.ref.notes.length) $('#kaRefSt').textContent = `解析結果：${KA.ref.notes.length}音、声らしい部分 ${Math.round(vo / Math.max(1, frames) * 100)}%（曲の長さ ${fmtT(n / REF_SR)}）。精度は低めです。`;
     toast(KA.ref && KA.ref.notes.length ? 'お手本の音程を保存しました（ライブラリに記録されます）' : 'お手本の音程を検出できませんでした', 4000);
   } catch (e) {
     opClear(); KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本の音程を解析'; $('#kaRefSt').textContent = '';
