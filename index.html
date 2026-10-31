@@ -237,6 +237,9 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .ka-note{font-size:11px;color:var(--faint);line-height:1.6}
 @media (max-width:760px){.ka{grid-template-rows:auto minmax(200px,1fr) minmax(160px,30vh) auto}}
 .ka-top{position:sticky;top:0;z-index:2;background:var(--bg);padding-bottom:4px}
+.dbbox{min-width:0;overflow:hidden}.dbbox>*{min-width:0}
+.dbauto span{min-width:0;overflow-wrap:anywhere}
+.dbbtns{min-width:0}.dbbtns .btn{min-width:0;white-space:normal;line-height:1.25;height:auto;min-height:32px;padding-block:5px}
 
 .ly-scroll{height:100%;overflow:auto;position:relative;scrollbar-width:none;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 88%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 88%,transparent 100%)}
 .ly-scroll::-webkit-scrollbar{display:none}
@@ -369,7 +372,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
       <label class="dbauto" for="dbAuto"><input type="checkbox" id="dbAuto"><span id="dbAutoTx">次回から起動時にこのライブラリを開く</span></label>
       <div class="dbresume" id="dbResume" hidden><span id="dbResumeName"></span><div class="dbbtns"><button class="btn sm primary" id="btnResume" type="button">開く</button><button class="btn sm ghost" id="btnForget" type="button">解除</button></div></div>
       <div class="dbbtns"><button class="btn sm" id="btnDbOpen" type="button">開く</button><button class="btn sm" id="btnDbNew" type="button">新規</button><button class="btn sm" id="btnDbSave" type="button">保存</button></div>
-      <div class="dbbtns"><button class="btn sm ghost" id="btnDbVac" type="button">空き領域を整理（ファイルを軽くする）</button></div>
+      <div class="dbbtns"><button class="btn sm ghost" id="btnDbVac" type="button">空き領域を整理</button></div>
       <p class="dbhint" id="dbHint" hidden>このブラウザでは、保存するたびにファイルがダウンロードされます。ChromeかEdgeなら、開いたファイルへ自動で上書き保存できます。</p>
     </div>
     <button class="btn primary imp" id="btnImport" type="button"><span data-i="upload" data-s="18"></span>曲を読み込む</button>
