@@ -323,7 +323,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .drop{position:fixed;inset:0;z-index:40;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;pointer-events:none}
 .drop div{padding:38px 56px;border:2px dashed var(--accent);border-radius:22px;background:var(--panel);font-size:20px;font-weight:900;text-align:center}
 .drop small{display:block;font-weight:500;color:var(--dim);font-size:13px;margin-top:6px}
-.toast{position:fixed;left:50%;bottom:calc(var(--barh) + 30px + env(safe-area-inset-bottom,0px));transform:translate(-50%,10px);z-index:50;max-width:min(520px,calc(100vw - 32px));padding:10px 16px;border-radius:12px;background:var(--fg);color:var(--bg);font-weight:500;opacity:0;pointer-events:none;transition:.2s;text-align:center}
+.toast.show{pointer-events:auto;cursor:pointer}.toast{position:fixed;left:50%;bottom:calc(var(--barh) + 30px + env(safe-area-inset-bottom,0px));transform:translate(-50%,10px);z-index:50;max-width:min(520px,calc(100vw - 32px));padding:10px 16px;border-radius:12px;background:var(--fg);color:var(--bg);font-weight:500;opacity:0;pointer-events:none;transition:.2s;text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
 @media (max-width:760px){
@@ -802,10 +802,20 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const fmt = s => { s = Math.max(0, Math.floor(s || 0)); const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0'); };
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 let toastTimer;
-function toast(msg, ms = 3200) {
-  const el = $('#toast'); el.textContent = msg; el.classList.add('show');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+const toastQ = []; let toastBusy = false;
+const TOAST_ERR = /できません|失敗|エラー|開けません|読み込めません|見つかりません|不明|許可|対応していません|足りません|終了しました/;
+function toast(msg, ms) {
+  const err = TOAST_ERR.test(msg), dur = Math.min(15000, Math.max(ms || 0, err ? 8000 : 3500, 1800 + msg.length * 110));
+  if (toastQ.length >= 3) { const i = toastQ.findIndex(x => !x.err); toastQ.splice(i < 0 ? 0 : i, 1); }
+  toastQ.push({ msg, dur, err }); if (!toastBusy) toastNext();
 }
+function toastNext() {
+  const el = $('#toast'), n = toastQ.shift();
+  if (!n) { toastBusy = false; el.classList.remove('show'); return; }
+  toastBusy = true; el.textContent = n.msg; el.classList.add('show'); el.classList.toggle('err', n.err);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.classList.remove('show'); setTimeout(toastNext, 260); }, n.dur);
+}
+$('#toast').addEventListener('click', () => { if (toastBusy) { clearTimeout(toastTimer); $('#toast').classList.remove('show'); setTimeout(toastNext, 200); } });
 
 /* ---------- SQLite library ---------- */
 let SQL = null, DB = null, fileHandle = null;
