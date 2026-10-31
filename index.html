@@ -426,6 +426,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <button class="btn sm" type="button" id="kaReVoc" hidden>ボーカルを抽出し直す</button>
         <button class="btn sm" type="button" id="kaGuide" aria-pressed="false" hidden>お手本ボーカルを流す：オフ</button>
         <label id="kaGuideS" hidden>お手本の音量<input type="range" id="kaGuideVol" min="0" max="100" value="80"></label>
+        <label id="kaGuideO" hidden>お手本のずれ補正 <span id="kaGuideOT">0</span> ms<input type="range" id="kaGuideOff" min="-200" max="200" step="5" value="0"></label>
         <select id="kaRefSens" aria-label="解析の感度" class="btn sm"><option value="strict">感度：低（ノイズ少なめ）</option><option value="mid" selected>感度：標準</option><option value="high">感度：高（伴奏が厚い曲向け）</option></select><span class="ka-note" id="kaRefSt"></span>
         <label id="kaVcS" hidden>消す強さ<input type="range" id="kaVcAmt" min="0" max="100" value="100"></label>
       </div>
@@ -2084,6 +2085,7 @@ function kaLoop() {
   if (!KA.open) return;
   KA.raf = requestAnimationFrame(kaLoop);
   if ((KA.fc++ & 1) === 0) kaDetect();
+  if ((KA.fc & 7) === 0) guideSync(false);
   kaLyrics(); kaDraw(); kaTransport();
 }
 
@@ -2243,12 +2245,19 @@ function toRate(ch, ratio) {
 
 /* guide vocal playback (the extracted vocal, kept in sync with the main audio) */
 const GD = { el: new Audio(), url: null, on: false };
+window.__gd = GD;
 GD.el.preload = 'auto';
+// two <audio> elements have independent clocks, so a one-off seek leaves an echo-like offset. Instead the guide
+// is steered continuously: its speed is nudged (up to +-8%) until it sits exactly on the main track (+ manual offset).
+GD.off = 0; try { GD.off = +localStorage.getItem('otobako-guide-off') || 0; } catch (e) {}
 function guideSync(force) {
   if (!GD.on) return;
-  GD.el.playbackRate = audio.playbackRate || 1;
-  if (audio.paused) { if (!GD.el.paused) GD.el.pause(); } else if (GD.el.paused) GD.el.play().catch(() => {});
-  if (force || Math.abs(GD.el.currentTime - audio.currentTime) > 0.12) { try { GD.el.currentTime = audio.currentTime; } catch (e) {} }
+  const base = audio.playbackRate || 1;
+  if (audio.paused) { if (!GD.el.paused) GD.el.pause(); GD.el.playbackRate = base; if (force) { try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000); } catch (e) {} } return; }
+  if (GD.el.paused) GD.el.play().catch(() => {});
+  const e = GD.el.currentTime - (audio.currentTime + GD.off / 1000);
+  if (force || Math.abs(e) > 0.25) { try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000 + 0.03 * base); } catch (er) {} GD.el.playbackRate = base; return; }
+  GD.el.playbackRate = Math.abs(e) < 0.006 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
 }
 function guideOff() {
   GD.on = false; try { GD.el.pause(); } catch (e) {} if (GD.url) { GD.el.removeAttribute('src'); URL.revokeObjectURL(GD.url); GD.url = null; }
@@ -2266,9 +2275,11 @@ async function guideOn() {
 ['play', 'pause', 'seeked', 'ratechange'].forEach(ev => audio.addEventListener(ev, () => guideSync(ev === 'seeked')));
 $('#kaGuide').addEventListener('click', () => GD.on ? guideOff() : guideOn());
 $('#kaGuideVol').addEventListener('input', e => { GD.el.volume = e.target.value / 100; });
+$('#kaGuideOff').value = GD.off; $('#kaGuideOT').textContent = GD.off;
+$('#kaGuideOff').addEventListener('input', e => { GD.off = +e.target.value; $('#kaGuideOT').textContent = GD.off; try { localStorage.setItem('otobako-guide-off', GD.off); } catch (er) {} guideSync(true); });
 
 function kaUiVocal(has) {
-  $('#kaGuide').hidden = !has; $('#kaGuideS').hidden = !has; $('#kaReVoc').hidden = !has; $('#kaVocStr').hidden = !has && false;
+  $('#kaGuide').hidden = !has; $('#kaGuideS').hidden = !has; $('#kaGuideO').hidden = !has; $('#kaReVoc').hidden = !has; $('#kaVocStr').hidden = !has && false;
 }
 function kaLoadRef() {
   KA.anTok++; KA.analyzing = false; guideOff(); const t = curTrack(); KA.refId = t ? t.id : null;
