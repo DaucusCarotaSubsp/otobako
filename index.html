@@ -225,6 +225,12 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .ka-set input[type=range]{width:100%;accent-color:var(--accent)}
 .ka-msg{font-size:12px;color:var(--danger);line-height:1.6}
 .ka-msg[hidden]{display:none}
+.ka-vc{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.ka-vc .btn[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ka-vc label{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim);flex:1;min-width:160px}
+.ka-vc label[hidden],.ka-note[hidden]{display:none}
+.ka-vc input{flex:1;min-width:0;accent-color:var(--accent)}
+.ka-note{font-size:11px;color:var(--faint);line-height:1.6}
 @media (max-width:760px){.ka{grid-template-rows:auto minmax(0,1fr) minmax(150px,34vh) auto}}
 
 .ly-scroll{height:100%;overflow:auto;position:relative;scrollbar-width:none;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 88%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 88%,transparent 100%)}
@@ -413,6 +419,11 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
           <button class="btn sm" type="button" id="kaClear">音程の記録をクリア</button>
         </div>
       </details>
+      <div class="ka-vc">
+        <button class="btn sm" type="button" id="kaVc" aria-pressed="false">ボーカルを消す：オフ</button>
+        <label id="kaVcS" hidden>消す強さ<input type="range" id="kaVcAmt" min="0" max="100" value="100"></label>
+      </div>
+      <p class="ka-note" id="kaVcHint" hidden>中央に定位した音（主にボーカル）を打ち消す簡易処理です。伴奏の中央の音（ベース・キックなど）や、コーラスの一部が変わることがあります。再生は常にモノラル風になります。</p>
       <p class="ka-msg" id="kaMsg" hidden></p>
     </div>
   </section>
@@ -2082,6 +2093,51 @@ function kaOpen() {
   cancelAnimationFrame(KA.raf); KA.raf = requestAnimationFrame(kaLoop);
 }
 function kaClose() { KA.open = false; cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
+/* vocal cut: cancel what sits in the centre of the stereo image (usually the lead vocal), keep the bass */
+const VC = { ctx: null, wet: null, dry: null, on: false, anO: null, anW: null, timer: 0, warned: false };
+window.__vc = VC;
+function vcInit() {
+  const AC = window.AudioContext || window.webkitAudioContext, c = new AC(); VC.ctx = c;
+  const src = c.createMediaElementSource(audio), sp = c.createChannelSplitter(2);
+  const inv = c.createGain(); inv.gain.value = -1;
+  const side = c.createGain(), mid = c.createGain(); mid.gain.value = 0.5;
+  src.connect(sp); sp.connect(side, 0); sp.connect(inv, 1); inv.connect(side);
+  sp.connect(mid, 0); sp.connect(mid, 1);
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 140; mid.connect(lp);
+  VC.wet = c.createGain(); VC.dry = c.createGain(); VC.wet.gain.value = 0; VC.dry.gain.value = 1;
+  side.connect(VC.wet); lp.connect(VC.wet); src.connect(VC.dry);
+  VC.wet.connect(c.destination); VC.dry.connect(c.destination);
+  VC.anO = c.createAnalyser(); VC.anW = c.createAnalyser(); VC.anR = c.createAnalyser(); VC.anO.fftSize = VC.anW.fftSize = VC.anR.fftSize = 2048;
+  src.connect(VC.anO); side.connect(VC.anW); sp.connect(VC.anR, 1);
+}
+function vcApply() {
+  if (!VC.ctx) return; const s = VC.on ? $('#kaVcAmt').value / 100 : 0, t = VC.ctx.currentTime;
+  VC.wet.gain.setTargetAtTime(s, t, 0.03); VC.dry.gain.setTargetAtTime(1 - s, t, 0.03);
+}
+function vcWatch() {
+  clearInterval(VC.timer); if (!VC.on || VC.warned) return;
+  let n = 0, a = 0, b = 0, rr = 0; const x = new Float32Array(2048), y = new Float32Array(2048), z = new Float32Array(2048);
+  const rms = v => { let e = 0; for (let i = 0; i < v.length; i++) e += v[i] * v[i]; return Math.sqrt(e / v.length); };
+  VC.timer = setInterval(() => {
+    if (audio.paused || !VC.on) return;
+    VC.anO.getFloatTimeDomainData(x); VC.anW.getFloatTimeDomainData(y); VC.anR.getFloatTimeDomainData(z);
+    const o = rms(x), w = rms(y); if (o < 0.01) return;
+    a += o; b += w; rr += rms(z); if (++n >= 6) { clearInterval(VC.timer); if (b < a * 0.03 || rr < a * 0.02) { VC.warned = true; kaMsg('この曲はモノラルに近く、ボーカルを分離できません（左右が同じ音です）。'); } }
+  }, 400);
+}
+async function vcToggle() {
+  try {
+    if (!VC.ctx) vcInit();
+    if (VC.ctx.state === 'suspended') await VC.ctx.resume();
+  } catch (e) { kaMsg('ボーカルカットを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
+  VC.on = !VC.on; VC.warned = false; kaMsg('');
+  const b = $('#kaVc'); b.setAttribute('aria-pressed', VC.on); b.textContent = 'ボーカルを消す：' + (VC.on ? 'オン' : 'オフ');
+  $('#kaVcS').hidden = !VC.on; $('#kaVcHint').hidden = !VC.on;
+  vcApply(); vcWatch();
+}
+audio.addEventListener('play', () => { if (VC.ctx && VC.ctx.state === 'suspended') VC.ctx.resume().catch(() => {}); });
+$('#kaVc').addEventListener('click', vcToggle);
+$('#kaVcAmt').addEventListener('input', vcApply);
 $('#npKaraoke').addEventListener('click', kaOpen);
 $('#kaClose').addEventListener('click', kaClose);
 $('#kaMic').addEventListener('click', () => KA.stream ? kaMicOff() : kaMicOn());
