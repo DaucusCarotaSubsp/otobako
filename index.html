@@ -878,7 +878,7 @@ async function insertDraft(d) {
     run('INSERT INTO tracks(title, artist, album, album_artist, year, track_no, genre, duration, file_name, mime, size, lrc, cover_id, bpm, added) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [d.title, d.artist || '', d.album || '', d.albumArtist || '', d.year || '', d.track || 0, d.genre || '', d.duration || 0, d.fileName, audioMime(d.file), d.size, d.lrc || '', coverId, d.bpm || 0, d.added]);
     const id = lastId();
-    if (D.lean) await auPut(D.libid, id, new Blob([bytes], { type: audioMime(d.file) })); else run('INSERT INTO audio(track_id, data) VALUES (?, ?)', [id, bytes]);
+    if (D.lean) await auPut(D.libid, id, bytes, audioMime(d.file)); else run('INSERT INTO audio(track_id, data) VALUES (?, ?)', [id, bytes]);
     run('COMMIT'); return id;
   } catch (e) { try { run('ROLLBACK'); } catch (e2) {} throw e; }
 }
@@ -1927,8 +1927,8 @@ async function auTx(mode, fn) {
   const db = await auOpen();
   return new Promise((res, rej) => { const tx = db.transaction('a', mode); let rq; try { rq = fn(tx.objectStore('a')); } catch (e) { rej(e); return; } tx.oncomplete = () => res(rq && rq.result); tx.onerror = tx.onabort = () => rej(tx.error || new Error('保存に失敗')); });
 }
-const auGet = id => auTx('readonly', s => s.get(D.libid + ':' + id));
-const auPut = (lib, id, blob) => auTx('readwrite', s => s.put(blob, lib + ':' + id));
+const auGet = id => auTx('readonly', s => s.get(D.libid + ':' + id)).then(v => !v ? null : v instanceof Blob ? v : new Blob([v.d], { type: v.t || 'audio/mpeg' }));
+const auPut = (lib, id, data, type) => auTx('readwrite', s => s.put({ t: type || 'audio/mpeg', d: data instanceof Uint8Array ? data : new Uint8Array(data) }, lib + ':' + id));
 const auDel = id => { auTx('readwrite', s => s.delete(D.libid + ':' + id)).catch(() => {}); };
 const auHas = (lib, id) => auTx('readonly', s => s.count(lib + ':' + id)).then(n => n > 0);
 async function getAudioBytes(id) {
@@ -1951,7 +1951,10 @@ function varint(b, o) { let v = 0; for (let i = 0; i < 8; i++) { const c = b[o +
 function intBE(b, o, n) { if (n > 6) { let v = 0n; for (let i = 0; i < n; i++) v = (v << 8n) | BigInt(b[o + i]); if (b[o] & 0x80) v -= 1n << BigInt(8 * n); return Number(v); } let v = 0; for (let i = 0; i < n; i++) v = v * 256 + b[o + i]; if (b[o] & 0x80) v -= Math.pow(2, 8 * n); return v; }
 class SqliteReader {
   constructor(file) { this.f = file; this.cache = new Map(); this.dec = new TextDecoder('utf-8'); }
-  async read(off, len) { const end = Math.min(this.f.size, off + len); if (end <= off) return new Uint8Array(0); return new Uint8Array(await this.f.slice(off, end).arrayBuffer()); }
+  async read(off, len) {
+    const end = Math.min(this.f.size, off + len); if (end <= off) return new Uint8Array(0);
+    for (let k = 0; ; k++) { try { return new Uint8Array(await this.f.slice(off, end).arrayBuffer()); } catch (e) { if (k >= 3) throw e; await new Promise(r => setTimeout(r, 400 * (k + 1))); } }
+  }
   async init() {
     const h = await this.read(0, 100);
     if (new TextDecoder('latin1').decode(h.subarray(0, 16)) !== SQLITE_MAGIC) throw new Error('not sqlite');
@@ -2012,7 +2015,8 @@ class SqliteReader {
 
 const IMP = { abort: false };
 const impShow = (title, pct, tx) => { $('#imp').hidden = false; $('#impTitle').textContent = title; $('#impBar').style.width = Math.max(0, Math.min(100, pct)) + '%'; $('#impTx').textContent = tx || ''; };
-$('#impCancel').addEventListener('click', () => { IMP.abort = true; $('#impTx').textContent = '中止しています…'; });
+const errText = e => e ? [e.name, e.message].filter((x, i, a) => x && a.indexOf(x) === i).join(': ') || String(e) : '不明';
+$('#impCancel').addEventListener('click', () => { if (IMP.finished) { $('#imp').hidden = true; return; } IMP.abort = true; $('#impTx').textContent = '中止しています…'; });
 async function leanOffer(file) {
   const gb = (file.size / 1073741824).toFixed(2) + ' GB';
   if (file.size >= LEAN.force) return confirm(`このライブラリは ${gb} あり、全体をメモリに読み込むと端末（特にiPhone）では動作しません。\n\n「分割読み込み」で取り込みます。曲の音声はこの端末のブラウザ内に少しずつ保存され、SQLiteとして保存できるのは曲の情報（音声を除く）だけになります。\n\n続けますか？`) ? 'lean' : 'cancel';
@@ -2023,14 +2027,14 @@ async function leanId(file) {
   return Array.from(h.subarray(0, 10), x => x.toString(16).padStart(2, '0')).join('');
 }
 async function leanLoad(file) {
-  const old = DB; let nd = null; IMP.abort = false;
+  const old = DB; let nd = null, stage = '開始'; const failed = []; IMP.abort = false; IMP.finished = false; $('#impCancel').textContent = '中止';
   const tick = () => new Promise(r => setTimeout(r, 0));
   try {
-    impShow('大容量ライブラリを取り込み中', 0, '構造を確認しています…'); opMark('大容量ライブラリの取り込み');
+    impShow('大容量ライブラリを取り込み中', 0, '構造を確認しています…'); opMark('大容量ライブラリの取り込み'); stage = '構造の確認';
     const rd = new SqliteReader(file); await rd.init(); const tabs = await rd.tables();
     if (!tabs.tracks || !tabs.audio || !tabs.covers) throw new Error('Otobakoのライブラリではありません');
     const libid = await leanId(file);
-    nd = new SQL.Database(); DB = nd; openMemory(nd);
+    nd = new SQL.Database(); DB = nd; openMemory(nd); DB.run('PRAGMA foreign_keys = OFF');
     const copy = async (name, pk) => {
       if (!tabs[name]) return; const cols = q(`PRAGMA table_info(${name})`).map(c => c.name); let n = 0; run('BEGIN');
       try {
@@ -2042,18 +2046,18 @@ async function leanLoad(file) {
         run('COMMIT');
       } catch (e) { try { run('ROLLBACK'); } catch (e2) {} throw e; }
     };
-    await copy('covers', 0); await copy('tracks', 0); await copy('playlists', 0); await copy('playlist_tracks', -1);
+    stage = '曲の情報（ジャケット）'; await copy('covers', 0); stage = '曲の情報（曲）'; await copy('tracks', 0); stage = '曲の情報（プレイリスト）'; await copy('playlists', 0); await copy('playlist_tracks', -1); DB.run('PRAGMA foreign_keys = ON');
     run("INSERT OR REPLACE INTO meta(key, value) VALUES ('audio_store', 'idb'), ('libid', ?)", [libid]);
-    const tot = q('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS s FROM tracks')[0]; let done = 0, doneB = 0, skipped = 0;
+    const tot = q('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS s FROM tracks')[0]; let done = 0, doneB = 0, skipped = 0, fails = 0;
     for await (const c of rd.walk(tabs.audio.root)) {
       if (IMP.abort) throw new Error('中止しました');
-      const tr = q('SELECT mime, size, title FROM tracks WHERE id = ?', [c.rowid])[0]; if (!tr) continue;
+      const tr = q('SELECT mime, size, title FROM tracks WHERE id = ?', [c.rowid])[0]; if (!tr) continue; stage = '音声の保存（' + tr.title + '）';
       const mb = x => (x / 1048576).toFixed(0);
       if (!(await auHas(libid, c.rowid))) {
         const sp = rd.blobSpan(c); if (!sp) throw new Error('音声データを読み取れません');
         impShow('音声を端末に保存中', 10 + 88 * (doneB / Math.max(1, tot.s)), `${done}/${tot.n}曲（${mb(doneB)} / ${mb(tot.s)} MB）\n${tr.title}`);
-        const bytes = await rd.readPayload(c, sp.off, sp.off + sp.len);
-        await auPut(libid, c.rowid, new Blob([bytes], { type: tr.mime || 'audio/mpeg' }));
+        try { const bytes = await rd.readPayload(c, sp.off, sp.off + sp.len); await auPut(libid, c.rowid, bytes, tr.mime || 'audio/mpeg'); fails = 0; }
+        catch (e) { if (IMP.abort) throw e; failed.push(tr.title + '：' + errText(e)); if (++fails >= 3 || e.name === 'QuotaExceededError') throw e; }
       } else skipped++;
       done++; doneB += tr.size || 0; if (done % 4 === 0) await tick();
     }
@@ -2063,11 +2067,12 @@ async function leanLoad(file) {
     await kv('readwrite', s => s.put({ name: D.name, blob: new Blob([exportDb()], { type: 'application/vnd.sqlite3' }) }, 'startup')); D.copyVer = D.ver; D.isStartup = true; D.pending = null;
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
     resetSession(); updateDbUi(); impShow('', 100, ''); $('#imp').hidden = true;
-    toast(`${S.tracks.length}曲を取り込みました` + (missing ? `（音声が見つからない曲が${missing}曲あります）` : '') + (skipped ? `。${skipped}曲は取り込み済みのためスキップしました` : '') + '。次回からは起動時に自動で開きます。', 8000);
+    toast(`${S.tracks.length}曲を取り込みました` + (missing ? `（音声を保存できなかった曲が${missing}曲あります：${failed.slice(0, 2).join(' / ')}）` : '') + (skipped ? `。${skipped}曲は取り込み済みのためスキップしました` : '') + '。次回からは起動時に自動で開きます。', 8000);
   } catch (e) {
     if (nd && DB === nd) { DB = old; try { nd.close(); } catch (e2) {} }
-    $('#imp').hidden = true; resetSession(); updateDbUi();
-    toast(IMP.abort ? '取り込みを中止しました。同じファイルをもう一度開くと続きから取り込みます。' : '大容量ライブラリを取り込めませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。', 9000);
+    resetSession(); updateDbUi();
+    if (IMP.abort) { $('#imp').hidden = true; toast('取り込みを中止しました。同じファイルをもう一度開くと続きから取り込みます。', 6000); }
+    else { IMP.finished = true; impShow('取り込めませんでした', 0, `段階：${stage}\n原因：${errText(e)}\n${failed.length ? '保存できなかった曲：' + failed.slice(0, 3).join(' / ') + '\n' : ''}同じファイルをもう一度開くと、保存済みの曲を飛ばして続きから取り込みます。`); $('#impCancel').textContent = '閉じる'; $('#impTx').style.whiteSpace = 'pre-wrap'; }
   } finally { opClear(); }
 }
 
