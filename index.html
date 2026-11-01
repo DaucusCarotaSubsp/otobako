@@ -2538,11 +2538,21 @@ async function kaMicOn() {
   $('#kaMic').classList.add('on'); $('#kaMicTx').textContent = 'マイクをオフ';
 }
 function kaMicOff() {
+  const wasPlaying = !audio.paused;
   try { recStop(true); } catch (e) {}
   try { if (KA.stream) KA.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   try { if (KA.ctx) KA.ctx.close(); } catch (e) {}
   KA.stream = KA.ctx = KA.an = KA.src = KA.mon = null; KA.last = null; KA.med = [];
   $('#kaMic').classList.remove('on'); $('#kaMicTx').textContent = 'マイクをオン'; $('#kaLv').style.width = '0'; kaRead(null);
+  if (!document.hidden) audioRecover(wasPlaying);
+}
+function audioRecover(was) {
+  const go = () => {
+    try { for (const c of [VC.ctx]) if (c && c.state !== 'running' && c.state !== 'closed') c.resume().catch(() => {}); } catch (e) {}
+    try { if (was && audio.paused && !audio.ended) audio.play().catch(() => {}); } catch (e) {}
+    try { guideSync(false); recSync(false); } catch (e) {}
+  };
+  go(); setTimeout(go, 150); setTimeout(go, 600); setTimeout(go, 1500);
 }
 function kaOpen() {
   if (!S.cur) return;
