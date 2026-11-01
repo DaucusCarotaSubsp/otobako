@@ -2520,7 +2520,7 @@ function kaLoop() {
 
 /* microphone */
 async function kaMicOn() {
-  kaMsg('');
+  kaMsg(''); let shared = null; try { await audioGraph(); shared = VC.ctx; } catch (e) {}
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { kaMsg('この環境ではマイクを使えません。HTTPSで開いたSafari/Chromeか、ホーム画面に追加したアプリで開いてください。'); return; }
   try {
     KA.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
@@ -2529,22 +2529,26 @@ async function kaMicOn() {
     return;
   }
   try {
-    const AC = window.AudioContext || window.webkitAudioContext; KA.ctx = new AC(); if (KA.ctx.state === 'suspended') await KA.ctx.resume();
+    const AC = window.AudioContext || window.webkitAudioContext; KA.ctx = shared || new AC(); if (KA.ctx.state === 'suspended') await KA.ctx.resume();
     KA.src = KA.ctx.createMediaStreamSource(KA.stream); KA.an = KA.ctx.createAnalyser(); KA.an.fftSize = 2048; KA.an.smoothingTimeConstant = 0;
     KA.buf = new Float32Array(KA.an.fftSize); KA.src.connect(KA.an);
     KA.mon = KA.ctx.createGain(); KA.mon.gain.value = 1; KA.src.connect(KA.mon);
     if ($('#kaMon').checked) KA.mon.connect(KA.ctx.destination);
   } catch (e) { kaMicOff(); kaMsg('音声の解析を開始できませんでした。'); return; }
   $('#kaMic').classList.add('on'); $('#kaMicTx').textContent = 'マイクをオフ';
+  audioRecover(!audio.paused);
 }
 function kaMicOff() {
   const wasPlaying = !audio.paused;
   try { recStop(true); } catch (e) {}
   try { if (KA.stream) KA.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
-  try { if (KA.ctx) KA.ctx.close(); } catch (e) {}
+  try { if (KA.ctx && KA.ctx !== VC.ctx) KA.ctx.close(); else if (KA.src) { KA.src.disconnect(); if (KA.mon) KA.mon.disconnect(); } } catch (e) {}
   KA.stream = KA.ctx = KA.an = KA.src = KA.mon = null; KA.last = null; KA.med = [];
   $('#kaMic').classList.remove('on'); $('#kaMicTx').textContent = 'マイクをオン'; $('#kaLv').style.width = '0'; kaRead(null);
   if (!document.hidden) audioRecover(wasPlaying);
+}
+function audioDead() {
+  try { if (!VC.anP) return false; const x = new Float32Array(1024); VC.anP.getFloatTimeDomainData(x); let e = 0; for (let i = 0; i < x.length; i++) e += x[i] * x[i]; return e < 1e-10; } catch (er) { return false; }
 }
 function audioRecover(was) {
   const go = () => {
@@ -2552,7 +2556,8 @@ function audioRecover(was) {
     try { if (was && audio.paused && !audio.ended) audio.play().catch(() => {}); } catch (e) {}
     try { guideSync(false); recSync(false); } catch (e) {}
   };
-  go(); setTimeout(go, 150); setTimeout(go, 600); setTimeout(go, 1500);
+  const kick = () => { if (!was || audio.paused || !audioDead()) return; const t = audio.currentTime; audio.pause(); try { VC.ctx.resume(); } catch (e) {} setTimeout(() => { audio.play().catch(() => {}); }, 60); };
+  go(); setTimeout(go, 150); setTimeout(() => { go(); kick(); }, 600); setTimeout(() => { go(); kick(); }, 1500);
 }
 function kaOpen() {
   if (!S.cur) return;
@@ -2813,15 +2818,15 @@ function guideSync(force) {
   GD.el.playbackRate = Math.abs(e) < 0.012 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
 }
 function guideOff() {
-  GD.on = false; try { GD.el.pause(); } catch (e) {} if (GD.url) { GD.el.removeAttribute('src'); URL.revokeObjectURL(GD.url); GD.url = null; }
+  GD.on = false; try { GD.el.pause(); if (GD.gain) GD.gain.gain.value = 0; } catch (e) {}
   const b = $('#kaGuide'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = 'お手本ボーカルを流す：オフ'; }
 }
 async function guideOn() {
   const t = curTrack(); if (!t) return;
   const row = await kdGet('vocal', trackKey(t)).catch(() => null); if (!row) { kaMsg('先に「お手本を解析」を実行してください。'); return; }
-  if (GD.url) URL.revokeObjectURL(GD.url);
+  const oldG = GD.url;
   try { await audioGraph(); guideGraph(); } catch (e) { kaMsg('お手本ボーカルを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
-  GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true;
+  GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; if (oldG) URL.revokeObjectURL(oldG); GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true;
   const b = $('#kaGuide'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'お手本ボーカルを流す：オン';
   try { await GD.el.play(); } catch (e) { kaMsg('お手本ボーカルを再生できませんでした。'); }
   if (audio.paused) GD.el.pause(); guideSync(true);
@@ -3117,14 +3122,14 @@ function recSync(force) {
   el.playbackRate = Math.abs(e) < 0.012 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
 }
 function recPlayOff() {
-  RC.on = false; try { RC.el.pause(); } catch (e) {} if (RC.url) { RC.el.removeAttribute('src'); URL.revokeObjectURL(RC.url); RC.url = null; }
+  RC.on = false; try { RC.el.pause(); if (RC.gain) RC.gain.gain.value = 0; } catch (e) {}   // src stays attached: tearing it down under a WebAudio source can hang iOS
   const b = $('#kaRecPlay'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = '録音を重ねて再生：オフ'; }
 }
 async function recPlayOn() {
   const key = $('#kaRecSel').value, info = RC.list.find(x => x.key === key); if (!info) return; kaMsg('');
   const row = await recTx(['wav'], 'readonly', w => w.get(key)).catch(() => null); if (!row) { kaMsg('録音を読み込めませんでした。'); return; }
   try { await audioGraph(); if (!RC.src) { const c = VC.ctx; RC.src = c.createMediaElementSource(RC.el); RC.gain = c.createGain(); RC.src.connect(RC.gain); RC.gain.connect(c.destination); } } catch (e) { kaMsg('録音の再生を開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
-  recPlayOff(); RC.cur = info; RC.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); RC.el.src = RC.url; RC.gain.gain.value = $('#kaRecVol').value / 100; RC.on = true;
+  recPlayOff(); const oldUrl = RC.url; RC.cur = info; RC.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); RC.el.src = RC.url; if (oldUrl) URL.revokeObjectURL(oldUrl); RC.gain.gain.value = $('#kaRecVol').value / 100; RC.on = true;
   const b = $('#kaRecPlay'); b.setAttribute('aria-pressed', 'true'); b.textContent = '録音を重ねて再生：オン';
   if (audio.paused) { try { await audio.play(); } catch (e) {} }
   recSync(true);
