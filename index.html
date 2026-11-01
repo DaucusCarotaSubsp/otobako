@@ -479,6 +479,9 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <button class="btn sm" type="button" id="kaReVoc" hidden>ボーカルを抽出し直す</button>
         <button class="btn sm ghost" type="button" id="kaDelRef" hidden>お手本を削除</button>
         <button class="btn sm" type="button" id="kaGuide" aria-pressed="false" hidden>お手本ボーカルを流す：オフ</button>
+        <button class="btn sm" type="button" id="kaTone" aria-pressed="false" hidden>お手本をメロディ音で流す：オフ</button>
+        <label id="kaToneS" hidden>メロディ音の音量<input type="range" id="kaToneVol" min="0" max="100" value="45"></label>
+        <label id="kaToneO" hidden>メロディ音のずれ補正 <span id="kaToneOT">0</span> ms<input type="range" id="kaToneOff" min="-300" max="300" step="5" value="0"></label>
         <label id="kaGuideS" hidden>お手本の音量<input type="range" id="kaGuideVol" min="0" max="100" value="80"></label>
         <label id="kaGuideO" hidden>お手本のずれ補正 <span id="kaGuideOT">0</span> ms<input type="range" id="kaGuideOff" min="-200" max="200" step="5" value="0"></label>
         <select id="kaRefSens" aria-label="解析の感度" class="btn sm"><option value="strict">感度：低（ノイズ少なめ）</option><option value="mid" selected>感度：標準</option><option value="high">感度：高（伴奏が厚い曲向け）</option></select><span class="ka-note" id="kaRefSt"></span>
@@ -2547,7 +2550,7 @@ function kaOpen() {
   hydrateIcons($('#ka')); kaBuild(); kaLoadRef(); kaRead(null); kdStat(); kdMigrate().then(() => kaLoadRef());
   cancelAnimationFrame(KA.raf); KA.raf = requestAnimationFrame(kaLoop);
 }
-function kaClose() { guideOff(); recPlayOff(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
+function kaClose() { toneOff(); guideOff(); recPlayOff(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
 /* reference melody: estimate the lead line from the centre of the stereo image (low accuracy by design) */
 const REF_SR = 16000, REF_HOP = 400, REF_W = 512, REF_TAU_MAX = 200, REF_TAU_MIN = 14;
 function bqCoef(type, f, sr, Q) {
@@ -2597,7 +2600,7 @@ function kaScore(ta, m) {
   let d = m - (n.m + KA.shift + KA.key); d -= 12 * Math.round(d / 12);
   KA.sc.n++; if (Math.abs(d) <= 1) KA.sc.hit++;
 }
-function kaSetRef(u8, hop) {
+function kaSetRef0(u8, hop) {
   if (!u8) { KA.ref = null; $('#kaRefBtn').textContent = 'お手本を解析（ボーカル抽出＋音程）'; $('#kaRefSt').textContent = ''; return; }
   const notes = refNotes(u8, hop); KA.ref = { notes };
   KA.shift = 0; KA.dsamp = []; KA.sc = { n: 0, hit: 0 };
@@ -3134,6 +3137,57 @@ $('#kaRecDel').addEventListener('click', async () => {
   try { await recTx(['info', 'wav'], 'readwrite', (i, w) => { i.delete(key); w.delete(key); }); toast('録音を削除しました。'); } catch (e) { kaMsg('削除できませんでした。'); }
   recList();
 });
+
+/* ---------- guide melody tone ---------- */
+const TN = { on: false, osc: null, g: null, vg: null, timer: 0, off: 0, segs: [], src: null };
+window.__tn = TN; try { TN.off = +localStorage.getItem('otobako-tone-off') || 0; } catch (e) {}
+function kaSetRef(u8, hop) { kaSetRef0(u8, hop); toneUi(); }
+// notes closer than 0.12 s are joined so the tone does not stutter; the pitch still follows each note
+function toneSegs() {
+  const ns = KA.ref ? KA.ref.notes : []; if (TN.src === ns) return TN.segs; const out = [];
+  for (let i = 0; i < ns.length; i++) { const n = ns[i], nx = ns[i + 1]; out.push({ t0: n.t0, t1: nx && nx.t0 - n.t1 <= 0.12 ? nx.t0 : n.t1, m: n.m }); }
+  TN.src = ns; TN.segs = out; return out;
+}
+function toneAt(t) {
+  const s = toneSegs(); let a = 0, b = s.length;
+  while (a < b) { const m = (a + b) >> 1; if (s[m].t1 < t) a = m + 1; else b = m; }
+  return s[a] && s[a].t0 <= t ? s[a] : null;
+}
+function toneUi() {
+  const has = !!(KA.ref && KA.ref.notes.length); if (!has) toneOff();
+  for (const id of ['#kaTone', '#kaToneS', '#kaToneO']) $(id).hidden = !has;
+}
+function toneOff() {
+  TN.on = false; clearInterval(TN.timer); TN.timer = 0;
+  try { if (TN.g && VC.ctx) TN.g.gain.setTargetAtTime(0, VC.ctx.currentTime, 0.02); } catch (e) {}
+  const b = $('#kaTone'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = 'お手本をメロディ音で流す：オフ'; }
+}
+function toneTick() {
+  if (!TN.on || !VC.ctx) return; const c = VC.ctx, now = c.currentTime;
+  if (audio.paused) { TN.g.gain.setTargetAtTime(0, now, 0.03); return; }
+  const t = (audio.currentTime || 0) + TN.off / 1000 + 0.03, s = toneAt(t);
+  if (s) {
+    const f = 440 * Math.pow(2, (s.m + KA.shift + KA.key - 69) / 12);
+    TN.osc.frequency.setTargetAtTime(f, now, TN.last === s ? 0.02 : 0.008); TN.g.gain.setTargetAtTime(1, now, 0.015); TN.last = s;
+  } else { TN.g.gain.setTargetAtTime(0, now, 0.025); TN.last = null; }
+}
+async function toneOn() {
+  if (!KA.ref || !KA.ref.notes.length) { kaMsg('先に「お手本を解析」を実行してください。'); return; }
+  try { await audioGraph(); } catch (e) { kaMsg('メロディ音を開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
+  const c = VC.ctx;
+  if (!TN.osc) {
+    TN.osc = c.createOscillator(); TN.osc.type = 'triangle'; TN.osc.frequency.value = 440;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; TN.g = c.createGain(); TN.g.gain.value = 0; TN.vg = c.createGain();
+    TN.osc.connect(lp); lp.connect(TN.g); TN.g.connect(TN.vg); TN.vg.connect(c.destination); TN.osc.start();
+  }
+  TN.vg.gain.value = $('#kaToneVol').value / 100 * 0.5; TN.on = true; TN.last = null;
+  const b = $('#kaTone'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'お手本をメロディ音で流す：オン';
+  clearInterval(TN.timer); TN.timer = setInterval(toneTick, 20);
+}
+$('#kaTone').addEventListener('click', () => TN.on ? toneOff() : toneOn());
+$('#kaToneVol').addEventListener('input', e => { if (TN.vg) TN.vg.gain.value = e.target.value / 100 * 0.5; });
+$('#kaToneOff').value = TN.off; $('#kaToneOT').textContent = TN.off;
+$('#kaToneOff').addEventListener('input', e => { TN.off = +e.target.value; $('#kaToneOT').textContent = TN.off; try { localStorage.setItem('otobako-tone-off', TN.off); } catch (er) {} });
 
 (async function boot() {
   hydrateIcons(); setPlayIcon(); updateModes(); document.body.classList.add('paused');
