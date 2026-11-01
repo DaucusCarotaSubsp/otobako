@@ -191,6 +191,9 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .np-meta p{color:var(--dim)}
 .np-opts{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .np-ly{min-height:0;min-width:0;position:relative}
+.dischd{padding:16px 16px 6px;font-weight:900;font-size:12px;letter-spacing:.08em;color:var(--dim);border-bottom:1px solid var(--line);margin-bottom:4px}
+.row3{grid-template-columns:1fr 1fr 1fr 1fr 1.4fr!important}
+@media (max-width:760px){.row3{grid-template-columns:1fr 1fr!important}}
 .limp{position:fixed;inset:0;z-index:60;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;padding:16px}
 .limp[hidden]{display:none}
 .limp-box{width:min(440px,100%);background:var(--raise);border:1px solid var(--line);border-radius:16px;padding:18px;display:grid;gap:12px;box-shadow:var(--shadow)}
@@ -380,6 +383,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
       <div class="dbresume" id="dbResume" hidden><span id="dbResumeName"></span><div class="dbbtns"><button class="btn sm primary" id="btnResume" type="button">開く</button><button class="btn sm ghost" id="btnForget" type="button">解除</button></div></div>
       <div class="dbbtns"><button class="btn sm" id="btnDbOpen" type="button">開く</button><button class="btn sm" id="btnDbNew" type="button">新規</button><button class="btn sm" id="btnDbSave" type="button">保存</button></div>
       <div class="dbbtns"><button class="btn sm ghost" id="btnDbVac" type="button">空き領域を整理</button></div>
+      <div class="dbbtns"><button class="btn sm ghost" id="btnDisc" type="button">曲名からディスクを設定</button></div>
       <p class="dbhint" id="dbHint" hidden>このブラウザでは、保存するたびにファイルがダウンロードされます。ChromeかEdgeなら、開いたファイルへ自動で上書き保存できます。</p>
     </div>
     <button class="btn primary imp" id="btnImport" type="button"><span data-i="upload" data-s="18"></span>曲を読み込む</button>
@@ -523,6 +527,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <label for="edAlbum">アルバム<input id="edAlbum" autocomplete="off"></label>
         <div class="row3">
           <label for="edYear">年<input id="edYear" inputmode="numeric" autocomplete="off"></label>
+          <label for="edDisc">ディスク<input id="edDisc" inputmode="numeric" autocomplete="off"></label>
           <label for="edTrack">トラック番号<input id="edTrack" inputmode="numeric" autocomplete="off"></label>
           <label for="edBpm">BPM<input id="edBpm" inputmode="decimal" autocomplete="off"></label>
           <label for="edGenre">ジャンル<input id="edGenre" autocomplete="off"></label>
@@ -840,7 +845,7 @@ CREATE TABLE IF NOT EXISTS tracks(
   id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, artist TEXT NOT NULL DEFAULT '', album TEXT NOT NULL DEFAULT '',
   album_artist TEXT NOT NULL DEFAULT '', year TEXT NOT NULL DEFAULT '', track_no INTEGER NOT NULL DEFAULT 0, genre TEXT NOT NULL DEFAULT '',
   duration REAL NOT NULL DEFAULT 0, file_name TEXT NOT NULL DEFAULT '', mime TEXT NOT NULL DEFAULT 'audio/mpeg', size INTEGER NOT NULL DEFAULT 0,
-  lrc TEXT NOT NULL DEFAULT '', cover_id INTEGER REFERENCES covers(id) ON DELETE SET NULL, bpm REAL NOT NULL DEFAULT 0, added INTEGER NOT NULL);
+  lrc TEXT NOT NULL DEFAULT '', cover_id INTEGER REFERENCES covers(id) ON DELETE SET NULL, bpm REAL NOT NULL DEFAULT 0, added INTEGER NOT NULL, disc INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audio(track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE, data BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS playlists(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS playlist_tracks(playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, pos INTEGER NOT NULL, PRIMARY KEY(playlist_id, track_id));
@@ -857,7 +862,7 @@ function q(sql, p) {
 const run = (sql, p) => DB.run(sql, p || []);
 const lastId = () => DB.exec('SELECT last_insert_rowid()')[0].values[0][0];
 function loadTracks() {
-  S.tracks = q('SELECT id, title, artist, album, album_artist AS albumArtist, year, track_no AS track, genre, duration, file_name AS fileName, mime, size, lrc, cover_id AS coverId, bpm, added FROM tracks');
+  S.tracks = q('SELECT id, title, artist, album, album_artist AS albumArtist, year, track_no AS track, genre, duration, file_name AS fileName, mime, size, lrc, cover_id AS coverId, bpm, added, disc FROM tracks');
   loadPlaylists();
 }
 function pruneCovers() { run('DELETE FROM covers WHERE id NOT IN (SELECT cover_id FROM tracks WHERE cover_id IS NOT NULL)'); }
@@ -875,8 +880,8 @@ async function insertDraft(d) {
   const bytes = new Uint8Array(await d.file.arrayBuffer());
   run('BEGIN');
   try {
-    run('INSERT INTO tracks(title, artist, album, album_artist, year, track_no, genre, duration, file_name, mime, size, lrc, cover_id, bpm, added) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        [d.title, d.artist || '', d.album || '', d.albumArtist || '', d.year || '', d.track || 0, d.genre || '', d.duration || 0, d.fileName, audioMime(d.file), d.size, d.lrc || '', coverId, d.bpm || 0, d.added]);
+    run('INSERT INTO tracks(title, artist, album, album_artist, year, track_no, genre, duration, file_name, mime, size, lrc, cover_id, bpm, added, disc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [d.title, d.artist || '', d.album || '', d.albumArtist || '', d.year || '', d.track || 0, d.genre || '', d.duration || 0, d.fileName, audioMime(d.file), d.size, d.lrc || '', coverId, d.bpm || 0, d.added, d.disc || 0]);
     const id = lastId();
     if (D.lean) await auPut(D.libid, id, bytes, audioMime(d.file)); else run('INSERT INTO audio(track_id, data) VALUES (?, ?)', [id, bytes]);
     run('COMMIT'); return id;
@@ -894,6 +899,7 @@ function exportDb() {
 function openMemory(db) {
   DB = db; DB.run('PRAGMA foreign_keys = ON'); DB.run(SCHEMA);
   try { if (!q('PRAGMA table_info(tracks)').some(c => c.name === 'bpm')) run('ALTER TABLE tracks ADD COLUMN bpm REAL NOT NULL DEFAULT 0'); } catch (e) {}
+  try { if (!q('PRAGMA table_info(tracks)').some(c => c.name === 'disc')) run('ALTER TABLE tracks ADD COLUMN disc INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
 }
 function resetSession() {
   audio.pause(); audio.removeAttribute('src'); if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
@@ -1120,6 +1126,8 @@ function frame(id, d, tags) {
     if (v && !tags[T_MAP[id]]) tags[T_MAP[id]] = v;
   } else if (id === 'TYER' || id === 'TYE' || id === 'TDRC') {
     const m = textFrame(d).match(/\d{4}/); if (m && !tags.year) tags.year = m[0];
+  } else if (id === 'TPOS' || id === 'TPA') {
+    const n = parseInt(textFrame(d), 10); if (n && !tags.disc) tags.disc = n;
   } else if (id === 'TRCK' || id === 'TRK') {
     const n = parseInt(textFrame(d), 10); if (n && !tags.track) tags.track = n;
   } else if (id === 'TBPM' || id === 'TBP') {
@@ -1198,6 +1206,12 @@ function parseLrc(text) {
   while (p.length && !p[p.length - 1].text) p.pop();
   return p.length ? { synced: false, lines: p } : null;
 }
+// "1-01 曲名", "2-03.曲名", "1-05_曲名" ... -> disc / track / title
+function parseDisc(s) {
+  const m = String(s || '').match(/^\s*(\d{1,2})\s*[-‐‑‒–—―−ー－]\s*(\d{2,3})(?!\d)\s*[-‐‑–—ー－._、,)）\]】\s]*(.*)$/);
+  if (!m || !m[3].trim()) return null; const disc = +m[1]; if (!disc || disc > 30) return null;
+  return { disc, track: +m[2], rest: m[3].trim() };
+}
 function activeIdx(lines, time) {
   let lo = 0, hi = lines.length - 1, r = -1;
   while (lo <= hi) { const m = (lo + hi) >> 1; if (lines[m].t <= time) { r = m; lo = m + 1; } else hi = m - 1; }
@@ -1254,7 +1268,8 @@ async function importFiles(fileList) {
     toast(`読み込み中… ${i + 1} / ${audios.length}`, 60000);
     if (S.tracks.some(t => t.fileName === f.name && t.size === f.size)) { skipped++; continue; }
     const tags = await readTags(f);
-    const stem = f.name.replace(/\.[^.]+$/, '').trim();
+    const stem0 = f.name.replace(/\.[^.]+$/, '').trim(), dp = parseDisc(stem0), stem = dp ? dp.rest : stem0;
+    const tp = tags.title ? parseDisc(tags.title) : null; if (tp) tags.title = tp.rest;
     let title = tags.title, artist = tags.artist || '';
     if (!title) { const m = stem.match(/^(.+?)\s+-\s+(.+)$/); if (m && !artist) { artist = m[1]; title = m[2]; } else title = stem; }
     const bn = baseName(f.name);
@@ -1262,7 +1277,7 @@ async function importFiles(fileList) {
     if (lrcBy.has(bn)) { lrc = await readText(lrcBy.get(bn)); usedLrc.add(bn); }
     let cover = tags.pic || null;
     if (!cover && imgBy.has(bn)) { cover = imgBy.get(bn); usedImg.add(bn); }
-    drafts.push({ title, artist, album: tags.album || '', albumArtist: tags.albumArtist || '', year: tags.year || '', track: tags.track || 0,
+    drafts.push({ title, artist, album: tags.album || '', albumArtist: tags.albumArtist || '', year: tags.year || '', track: tags.track || (tp && tp.track) || (dp && dp.track) || 0, disc: (tp && tp.disc) || (dp && dp.disc) || tags.disc || 0,
                   genre: tags.genre || '', bpm: tags.bpm || 0, duration: await probeDuration(f), file: f, fileName: f.name, size: f.size,
                   cover: cover ? await normalizeCover(cover) : null, lrc, added: Date.now() + i });
   }
@@ -1501,8 +1516,8 @@ function visibleTracks() {
 const SORTS = {
   added: (a, b) => b.added - a.added,
   title: (a, b) => coll.compare(a.title, b.title),
-  artist: (a, b) => coll.compare(artistOf(a), artistOf(b)) || coll.compare(albumOf(a), albumOf(b)) || ((a.track || 999) - (b.track || 999)),
-  album: (a, b) => coll.compare(albumOf(a), albumOf(b)) || ((a.track || 999) - (b.track || 999)) || coll.compare(a.title, b.title),
+  artist: (a, b) => coll.compare(artistOf(a), artistOf(b)) || coll.compare(albumOf(a), albumOf(b)) || ((a.disc || 1) - (b.disc || 1)) || ((a.track || 999) - (b.track || 999)),
+  album: (a, b) => coll.compare(albumOf(a), albumOf(b)) || ((a.disc || 1) - (b.disc || 1)) || ((a.track || 999) - (b.track || 999)) || coll.compare(a.title, b.title),
   duration: (a, b) => a.duration - b.duration
 };
 function sortList(l) { return l.sort(S.detail ? SORTS.album : SORTS[S.sort]); }
@@ -1529,10 +1544,17 @@ function trackRow(t, i, ids, numTrack) {
   return row;
 }
 function trackList(list, numTrack) {
-  const ids = list.map(t => t.id);
+  const ids = list.map(t => t.id), grp = !!S.detail || S.sort === 'album' || S.sort === 'artist', discs = new Map();
+  if (grp) for (const t of list) { const k = albumKey(t); if (!discs.has(k)) discs.set(k, new Set()); discs.get(k).add(t.disc || 1); }
+  const rows = []; let lastK = null, lastD = null;
+  list.forEach((t, i) => {
+    const k = albumKey(t), d = t.disc || 1;
+    if (grp && discs.get(k).size > 1 && (k !== lastK || d !== lastD)) rows.push(h('div', { class: 'dischd', role: 'heading', 'aria-level': '3' }, S.detail ? `ディスク ${d}` : `${albumOf(t)} ・ ディスク ${d}`));
+    lastK = k; lastD = d; rows.push(trackRow(t, i, ids, numTrack));
+  });
   return h('div', { class: 'list' },
     h('div', { class: 'lh', 'aria-hidden': 'true' }, h('span', { text: '#' }), h('span', { text: '曲' }), h('span', { text: 'アルバム' }), h('span', { text: '時間' }), h('span')),
-    list.map((t, i) => trackRow(t, i, ids, numTrack)));
+    rows);
 }
 function emptyLibrary() {
   return h('div', { class: 'empty' }, h('span', { class: 'cov s96', style: 'background:var(--accent);color:var(--accent-ink)' }, icon('songs', 40)),
@@ -1754,7 +1776,7 @@ function openEdit(id, focusLrc) {
   const t = byId(id); if (!t) return;
   ed.id = id; ed.cover = null; ed.changed = false; ed.opener = document.activeElement;
   $('#edTitle').value = t.title; $('#edArtist').value = t.artist; $('#edAlbum').value = t.album; $('#edYear').value = t.year;
-  $('#edTrack').value = t.track || ''; $('#edBpm').value = t.bpm ? +(+t.bpm).toFixed(1) : ''; $('#edGenre').value = t.genre; $('#edLrc').value = t.lrc || '';
+  $('#edDisc').value = t.disc || ''; $('#edTrack').value = t.track || ''; $('#edBpm').value = t.bpm ? +(+t.bpm).toFixed(1) : ''; $('#edGenre').value = t.genre; $('#edLrc').value = t.lrc || '';
   $('#edFileInfo').textContent = `${t.fileName} · ${(t.size / 1048576).toFixed(1)}MB · ${fmt(t.duration)}`;
   resetDel(); edPreview(); edLrcInfo();
   $('#modal').hidden = false;
@@ -1768,13 +1790,13 @@ function resetDel() { clearTimeout(ed.armTimer); $('#edDel').classList.remove('a
 async function saveEdit() {
   const id = ed.id, t = byId(id); if (!t) return;
   const f = { title: $('#edTitle').value.trim() || t.fileName.replace(/\.[^.]+$/, ''), artist: $('#edArtist').value.trim(), album: $('#edAlbum').value.trim(),
-              year: $('#edYear').value.trim(), track: parseInt($('#edTrack').value, 10) || 0, genre: $('#edGenre').value.trim(), bpm: Math.max(0, Math.min(400, parseFloat($('#edBpm').value) || 0)), lrc: $('#edLrc').value };
+              year: $('#edYear').value.trim(), track: parseInt($('#edTrack').value, 10) || 0, disc: parseInt($('#edDisc').value, 10) || 0, genre: $('#edGenre').value.trim(), bpm: Math.max(0, Math.min(400, parseFloat($('#edBpm').value) || 0)), lrc: $('#edLrc').value };
   const lrcChanged = t.lrc !== f.lrc;
   try {
     let coverId = t.coverId || null;
     if (ed.changed) coverId = ed.cover ? await insertCover(ed.cover) : null;
-    run('UPDATE tracks SET title = ?, artist = ?, album = ?, year = ?, track_no = ?, genre = ?, bpm = ?, lrc = ?, cover_id = ? WHERE id = ?',
-        [f.title, f.artist, f.album, f.year, f.track, f.genre, f.bpm, f.lrc, coverId, id]);
+    run('UPDATE tracks SET title = ?, artist = ?, album = ?, year = ?, track_no = ?, disc = ?, genre = ?, bpm = ?, lrc = ?, cover_id = ? WHERE id = ?',
+        [f.title, f.artist, f.album, f.year, f.track, f.disc, f.genre, f.bpm, f.lrc, coverId, id]);
     if (ed.changed) pruneCovers();
   } catch (e) { toast('更新できませんでした。', 4000); return; }
   markDirty(); loadTracks(); closeEdit(); render(true);
@@ -2094,6 +2116,23 @@ async function leanLoad(file) {
     else { IMP.finished = true; impShow('取り込めませんでした', 0, `段階：${stage}\n原因：${errText(e)}\n${failed.length ? '保存できなかった曲：' + failed.slice(0, 3).join(' / ') + '\n' : ''}同じファイルをもう一度開くと、保存済みの曲を飛ばして続きから取り込みます。`); $('#impCancel').textContent = '閉じる'; $('#impTx').style.whiteSpace = 'pre-wrap'; }
   } finally { opClear(); }
 }
+
+function assignDiscs() {
+  let n = 0;
+  try {
+    run('BEGIN');
+    for (const t of S.tracks) {
+      if (t.disc) continue;
+      const a = parseDisc(t.title), b = a ? null : parseDisc(t.fileName.replace(/\.[^.]+$/, ''));
+      if (!a && !b) continue;
+      const m = a || b; run('UPDATE tracks SET title = ?, disc = ?, track_no = ? WHERE id = ?', [a ? a.rest : t.title, m.disc, t.track || m.track, t.id]); n++;
+    }
+    run('COMMIT');
+  } catch (e) { try { run('ROLLBACK'); } catch (e2) {} toast('ディスクを設定できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。', 6000); return; }
+  if (n) { markDirty(); loadTracks(); render(true); toast(`${n}曲にディスク番号を設定しました（曲名の「1-01」などの接頭語は外しました）。`, 6000); }
+  else toast('「1-01 曲名」の形式の曲が見つかりませんでした。', 4500);
+}
+$('#btnDisc').addEventListener('click', assignDiscs);
 
 /* ---------- karaoke ---------- */
 window.__ka = null;
