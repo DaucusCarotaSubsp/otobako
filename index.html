@@ -191,6 +191,9 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .np-meta p{color:var(--dim)}
 .np-opts{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .np-ly{min-height:0;min-width:0;position:relative}
+.btn.rec-on{background:#e5484d;color:#fff;border-color:transparent}
+.ka-rec{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.ka-rec select{max-width:100%}
 .tr-bar{position:absolute;top:6px;right:6px;z-index:3}
 .trpop{position:absolute;top:44px;right:6px;z-index:4;width:min(340px,calc(100% - 12px));background:var(--bg2,var(--bg));border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.35);display:grid;gap:10px;max-height:calc(100% - 56px);overflow:auto}
 .trpop[hidden]{display:none}
@@ -482,6 +485,17 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <label id="kaVcS" hidden>消す強さ<input type="range" id="kaVcAmt" min="0" max="100" value="100"></label>
       </div>
       <p class="ka-note" id="kaVcHint" hidden>中央に定位した音（主にボーカル）を打ち消す簡易処理です。伴奏の中央の音（ベース・キックなど）や、コーラスの一部が変わることがあります。再生は常にモノラル風になります。</p>
+      <div class="ka-rec" id="kaRecBox">
+        <button class="btn sm" type="button" id="kaRec">● 歌を録音</button>
+        <span class="ka-note" id="kaRecSt"></span>
+        <select id="kaRecSel" class="btn sm" aria-label="録音の一覧" hidden></select>
+        <button class="btn sm" type="button" id="kaRecPlay" aria-pressed="false" hidden>録音を重ねて再生：オフ</button>
+        <label id="kaRecVS" hidden>録音の音量<input type="range" id="kaRecVol" min="0" max="200" value="100"></label>
+        <label id="kaRecOS" hidden>録音のずれ補正 <span id="kaRecOT">0</span> ms<input type="range" id="kaRecOff" min="-300" max="300" step="5" value="0"></label>
+        <button class="btn sm ghost" type="button" id="kaRecDl" hidden>この録音を保存（WAV）</button>
+        <button class="btn sm ghost" type="button" id="kaRecDel" hidden>この録音を削除</button>
+      </div>
+      <p class="ka-note" id="kaRecHint">録音は、曲の再生位置に合わせて保存されます（録音専用のデータベース）。「ボーカルを消す」をオンにして歌うと、あとで自分の歌だけを曲に重ねて聴けます。イヤホン推奨です。</p>
       <p class="ka-msg" id="kaMsg" hidden></p>
     </div>
   </section>
@@ -1882,7 +1896,7 @@ async function saveEdit() {
 async function deleteTrack() {
   const id = ed.id; if (id == null || !byId(id)) return;
   closeEdit();
-  try { const tt = byId(id); if (tt) kdRemove(trackKey(tt)); } catch (e) {} run('DELETE FROM playlist_tracks WHERE track_id = ?', [id]); if (D.lean) auDel(id); run('DELETE FROM audio WHERE track_id = ?', [id]); run('DELETE FROM tracks WHERE id = ?', [id]); pruneCovers();
+  try { const tt = byId(id); if (tt) { kdRemove(trackKey(tt)); recRemoveAll(trackKey(tt)); } } catch (e) {} run('DELETE FROM playlist_tracks WHERE track_id = ?', [id]); if (D.lean) auDel(id); run('DELETE FROM audio WHERE track_id = ?', [id]); run('DELETE FROM tracks WHERE id = ?', [id]); pruneCovers();
   markDirty(); loadTracks();
   S.queue = S.queue.filter(x => x !== id); S.base = S.base.filter(x => x !== id);
   if (S.cur === id) { audio.pause(); audio.removeAttribute('src'); if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; } S.cur = null; S.lyr = null; setNp(false); renderLyrics(); }
@@ -2497,7 +2511,7 @@ function kaLoop() {
   if (!KA.open) return;
   KA.raf = requestAnimationFrame(kaLoop);
   if ((KA.fc++ & 1) === 0) kaDetect();
-  if ((KA.fc & 7) === 0) guideSync(false);
+  if ((KA.fc & 7) === 0) { guideSync(false); recSync(false); }
   kaLyrics(); kaDraw(); kaTransport();
 }
 
@@ -2521,6 +2535,7 @@ async function kaMicOn() {
   $('#kaMic').classList.add('on'); $('#kaMicTx').textContent = 'マイクをオフ';
 }
 function kaMicOff() {
+  try { recStop(true); } catch (e) {}
   try { if (KA.stream) KA.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   try { if (KA.ctx) KA.ctx.close(); } catch (e) {}
   KA.stream = KA.ctx = KA.an = KA.src = KA.mon = null; KA.last = null; KA.med = [];
@@ -2532,7 +2547,7 @@ function kaOpen() {
   hydrateIcons($('#ka')); kaBuild(); kaLoadRef(); kaRead(null); kdStat(); kdMigrate().then(() => kaLoadRef());
   cancelAnimationFrame(KA.raf); KA.raf = requestAnimationFrame(kaLoop);
 }
-function kaClose() { guideOff(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
+function kaClose() { guideOff(); recPlayOff(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
 /* reference melody: estimate the lead line from the centre of the stereo image (low accuracy by design) */
 const REF_SR = 16000, REF_HOP = 400, REF_W = 512, REF_TAU_MAX = 200, REF_TAU_MIN = 14;
 function bqCoef(type, f, sr, Q) {
@@ -2808,7 +2823,7 @@ function kaUiVocal(has) {
   $('#kaGuide').hidden = !has; $('#kaGuideS').hidden = !has; $('#kaGuideO').hidden = !has; $('#kaReVoc').hidden = !has; $('#kaDelRef').hidden = !has; $('#kaVocStr').hidden = !has && false;
 }
 async function kaLoadRef() {
-  const my = ++KA.anTok; KA.analyzing = false; guideOff(); const t = curTrack(); KA.refId = t ? t.id : null; if (KA.key) keySet(0);
+  const my = ++KA.anTok; KA.analyzing = false; guideOff(); recPlayOff(); recList(); const t = curTrack(); KA.refId = t ? t.id : null; if (KA.key) keySet(0);
   kaSetRef(null); kaUiVocal(false); $('#kaRefBtn').disabled = !t; if (!t) return;
   let mel = null, info = null; try { const k = trackKey(t); mel = await kdGet('melody', k); info = await kdGet('info', k); } catch (e) {}
   if (KA.anTok !== my) return;
@@ -3003,6 +3018,122 @@ $('#kaMon').addEventListener('change', e => { if (!KA.mon || !KA.ctx) return; tr
 audio.addEventListener('seeked', () => { if (KA.open && !KA.seekKeep) KA.hist = []; });
 document.addEventListener('keydown', e => { if (KA.open && e.key === 'Escape') kaClose(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && KA.open) kaMicOff(); });
+
+/* ---------- recording ---------- */
+const RC = { p: null, el: new Audio(), url: null, on: false, cur: null, list: [], r: null, asked: false };
+window.__rc = RC; RC.el.preload = 'auto'; RC.api = () => ({ recInfos, recTx });
+RC.off = 0; try { RC.off = +localStorage.getItem('otobako-rec-off') || 0; } catch (e) {}
+function recOpenDb() {
+  return RC.p || (RC.p = new Promise((res, rej) => {
+    const r = indexedDB.open('otobako-rec', 1);
+    r.onupgradeneeded = () => { for (const s of ['info', 'wav']) r.result.createObjectStore(s); };
+    r.onsuccess = () => res(r.result); r.onerror = () => { RC.p = null; rej(r.error); };
+  }));
+}
+async function recTx(stores, mode, fn) {
+  const db = await recOpenDb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(stores, mode); let rq;
+    try { rq = fn(...stores.map(s => tx.objectStore(s))); } catch (e) { rej(e); return; }
+    tx.oncomplete = () => res(rq && rq.result); tx.onerror = tx.onabort = () => rej(tx.error || new Error('保存に失敗'));
+  });
+}
+async function recInfos() {
+  const db = await recOpenDb();
+  return new Promise((res, rej) => { const out = [], rq = db.transaction('info', 'readonly').objectStore('info').openCursor(); rq.onsuccess = () => { const c = rq.result; if (c) { out.push({ key: c.key, ...c.value }); c.continue(); } else res(out); }; rq.onerror = () => rej(rq.error); });
+}
+async function recRemoveAll(tk) { try { const l = (await recInfos()).filter(x => x.tk === tk); await recTx(['info', 'wav'], 'readwrite', (i, w) => { for (const x of l) { i.delete(x.key); w.delete(x.key); } }); } catch (e) {} }
+const recFmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const recSt = m => { $('#kaRecSt').textContent = m || ''; };
+async function recList(sel) {
+  const t = curTrack(), box = $('#kaRecSel'); let l = [];
+  try { const all = await recInfos(); l = t ? all.filter(x => x.tk === trackKey(t)).sort((a, b) => b.when - a.when) : []; const sum = all.reduce((a, b) => a + (b.size || 0), 0); $('#kaRecHint').dataset.stat = `録音用データベース：${all.length}件・${(sum / 1048576).toFixed(1)} MB`; } catch (e) { $('#kaRecHint').dataset.stat = ''; }
+  RC.list = l; box.replaceChildren(...l.map(x => h('option', { value: x.key, text: `${new Date(x.when).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}　${recFmt(x.dur)}` })));
+  if (sel && l.some(x => x.key === sel)) box.value = sel;
+  const has = l.length > 0; for (const id of ['#kaRecSel', '#kaRecPlay', '#kaRecVS', '#kaRecOS', '#kaRecDl', '#kaRecDel']) $(id).hidden = !has;
+  const st = $('#kaRecHint').dataset.stat; $('#kaRecHint').textContent = '録音は、曲の再生位置に合わせて保存されます。「ボーカルを消す」をオンにして歌うと、あとで自分の歌だけを曲に重ねて聴けます。イヤホン推奨です。' + (st ? '　' + st : '');
+}
+async function recStart() {
+  if (RC.r) return; const t = curTrack(); if (!t) return; kaMsg('');
+  if (!KA.stream) await kaMicOn(); if (!KA.stream || !KA.ctx) return;
+  if (!KA.ctx.createScriptProcessor) { kaMsg('この環境では録音できません（音声処理に未対応）。'); return; }
+  recPlayOff();
+  if (audio.paused) { try { await audio.play(); } catch (e) {} }
+  const c = KA.ctx, sp = c.createScriptProcessor(4096, 1, 1), z = c.createGain(); z.gain.value = 0; KA.src.connect(sp); sp.connect(z); z.connect(c.destination);
+  const r = RC.r = { sp, z, sr: c.sampleRate, out: 24000, chunks: [], n: 0, ph: 0, acc: 0, accN: 0, t0: null, last: 0, tk: trackKey(t), title: t.title, begun: Date.now() };
+  r.ratio = r.sr / r.out;
+  sp.onaudioprocess = e => {
+    if (RC.r !== r) return; const x = e.inputBuffer.getChannelData(0), st = audio.currentTime || 0, bd = x.length / r.sr;
+    if (audio.paused) return;
+    if (r.t0 === null) { r.t0 = Math.max(0, st - bd); r.last = st; }
+    if (st < r.last - 0.5) { setTimeout(() => recStop(false, '曲の再生位置を戻したため、録音を止めて保存しました。'), 0); return; }
+    r.last = st;
+    const startPos = Math.round((st - bd - r.t0) * r.out), gap = startPos - r.n;
+    if (gap > r.out * 0.2) { r.chunks.push(new Int16Array(gap)); r.n += gap; }
+    const o = new Int16Array(Math.ceil(x.length / r.ratio) + 1); let k = 0;
+    for (let i = 0; i < x.length; i++) { r.acc += x[i]; r.accN++; r.ph += 1; if (r.ph >= r.ratio) { r.ph -= r.ratio; const v = r.acc / r.accN; o[k++] = Math.max(-32768, Math.min(32767, Math.round(v * 32767))); r.acc = 0; r.accN = 0; } }
+    r.chunks.push(o.subarray(0, k)); r.n += k;
+    if (r.n > r.out * 1200) setTimeout(() => recStop(false, '20分に達したため、録音を止めて保存しました。'), 0);
+  };
+  r.tick = setInterval(() => recSt(`録音中 ${recFmt(r.n / r.out)}`), 400);
+  $('#kaRec').classList.add('rec-on'); $('#kaRec').textContent = '■ 録音を停止'; recSt('録音中 0:00');
+}
+async function recStop(silent, why) {
+  const r = RC.r; if (!r) return; RC.r = null; clearInterval(r.tick);
+  try { r.sp.onaudioprocess = null; r.sp.disconnect(); r.z.disconnect(); if (KA.src) KA.src.disconnect(r.sp); } catch (e) {}
+  $('#kaRec').classList.remove('rec-on'); $('#kaRec').textContent = '● 歌を録音'; recSt('');
+  if (r.n < r.out) { if (!silent) kaMsg('録音が短すぎるため、保存しませんでした。'); return; }
+  const n = r.n, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf), w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, r.out, true); dv.setUint32(28, r.out * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, n * 2, true);
+  let p = 44; for (const c of r.chunks) { for (let i = 0; i < c.length; i++, p += 2) dv.setInt16(p, c[i], true); } r.chunks = null;
+  const key = r.tk + '#' + r.begun;
+  try {
+    if (!RC.asked) { RC.asked = true; try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {} }
+    await recTx(['info', 'wav'], 'readwrite', (i, wv) => { i.put({ tk: r.tk, title: r.title, when: r.begun, dur: n / r.out, t0: r.t0, size: buf.byteLength }, key); wv.put({ data: new Uint8Array(buf) }, key); });
+    toast((why || '録音を保存しました。') + '（' + recFmt(n / r.out) + '）', 5000); await recList(key);
+  } catch (e) { kaMsg('録音を保存できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。端末の空き容量を確認してください。'); }
+}
+function recSync(force) {
+  if (!RC.on || !RC.cur) return;
+  const base = audio.playbackRate || 1, el = RC.el, target = audio.currentTime - RC.cur.t0 + RC.off / 1000;
+  if (target < 0 || (el.duration && target > el.duration) || audio.paused) { if (!el.paused) el.pause(); el.playbackRate = base; if (force && target >= 0) { try { el.currentTime = target; } catch (e) {} } return; }
+  if (el.paused) el.play().catch(() => {});
+  const raw = el.currentTime - target; RC.ea = force || RC.ea === undefined ? raw : RC.ea * 0.75 + raw * 0.25; const e = RC.ea;
+  if (force || Math.abs(raw) > 0.25) { RC.ea = undefined; try { el.currentTime = Math.max(0, target + 0.03 * base); } catch (er) {} el.playbackRate = base; return; }
+  el.playbackRate = Math.abs(e) < 0.012 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
+}
+function recPlayOff() {
+  RC.on = false; try { RC.el.pause(); } catch (e) {} if (RC.url) { RC.el.removeAttribute('src'); URL.revokeObjectURL(RC.url); RC.url = null; }
+  const b = $('#kaRecPlay'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = '録音を重ねて再生：オフ'; }
+}
+async function recPlayOn() {
+  const key = $('#kaRecSel').value, info = RC.list.find(x => x.key === key); if (!info) return; kaMsg('');
+  const row = await recTx(['wav'], 'readonly', w => w.get(key)).catch(() => null); if (!row) { kaMsg('録音を読み込めませんでした。'); return; }
+  try { await audioGraph(); if (!RC.src) { const c = VC.ctx; RC.src = c.createMediaElementSource(RC.el); RC.gain = c.createGain(); RC.src.connect(RC.gain); RC.gain.connect(c.destination); } } catch (e) { kaMsg('録音の再生を開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
+  recPlayOff(); RC.cur = info; RC.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); RC.el.src = RC.url; RC.gain.gain.value = $('#kaRecVol').value / 100; RC.on = true;
+  const b = $('#kaRecPlay'); b.setAttribute('aria-pressed', 'true'); b.textContent = '録音を重ねて再生：オン';
+  if (audio.paused) { try { await audio.play(); } catch (e) {} }
+  recSync(true);
+}
+['play', 'pause', 'seeked', 'ratechange'].forEach(ev => audio.addEventListener(ev, () => recSync(ev === 'seeked')));
+audio.addEventListener('ended', () => { if (RC.r) recStop(false, '曲が終わったので録音を保存しました。'); });
+$('#kaRec').addEventListener('click', () => RC.r ? recStop(false) : recStart());
+$('#kaRecPlay').addEventListener('click', () => RC.on ? recPlayOff() : recPlayOn());
+$('#kaRecSel').addEventListener('change', () => { if (RC.on) recPlayOn(); });
+$('#kaRecVol').addEventListener('input', e => { if (RC.gain) RC.gain.gain.value = e.target.value / 100; });
+$('#kaRecOff').value = RC.off; $('#kaRecOT').textContent = RC.off;
+$('#kaRecOff').addEventListener('input', e => { RC.off = +e.target.value; $('#kaRecOT').textContent = RC.off; try { localStorage.setItem('otobako-rec-off', RC.off); } catch (er) {} recSync(true); });
+$('#kaRecDl').addEventListener('click', async () => {
+  const key = $('#kaRecSel').value, info = RC.list.find(x => x.key === key); if (!info) return;
+  const row = await recTx(['wav'], 'readonly', w => w.get(key)).catch(() => null); if (!row) { kaMsg('録音を読み込めませんでした。'); return; }
+  download(new Blob([row.data], { type: 'audio/wav' }), `${info.title.replace(/[\\/:*?"<>|]/g, '_')}_録音_${new Date(info.when).toISOString().slice(0, 16).replace(/[-T:]/g, '')}.wav`);
+});
+$('#kaRecDel').addEventListener('click', async () => {
+  const key = $('#kaRecSel').value; if (!key || !confirm('選んだ録音を削除しますか？')) return; recPlayOff();
+  try { await recTx(['info', 'wav'], 'readwrite', (i, w) => { i.delete(key); w.delete(key); }); toast('録音を削除しました。'); } catch (e) { kaMsg('削除できませんでした。'); }
+  recList();
+});
 
 (async function boot() {
   hydrateIcons(); setPlayIcon(); updateModes(); document.body.classList.add('paused');
