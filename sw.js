@@ -1,6 +1,6 @@
 // Otobako service worker: keeps the app files on the device so it opens without a connection.
 // When you upload a new index.html, change VERSION so devices pick up the update.
-const VERSION = 'otobako-v22';
+const VERSION = 'otobako-v23';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png', './icon-32.png', './icon-64.png'];
 
 self.addEventListener('install', e => {
