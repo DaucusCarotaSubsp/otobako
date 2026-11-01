@@ -2013,6 +2013,18 @@ class SqliteReader {
   async tables() { const out = {}; for await (const c of this.walk(1)) { const r = (await this.record(c)).vals; if (r[0] === 'table') out[r[1]] = { root: r[3], sql: r[4] }; } return out; }
 }
 
+function sqlColNames(sql) {
+  const a = sql.indexOf('('), b = sql.lastIndexOf(')'); if (a < 0 || b < 0) return [];
+  const body = sql.slice(a + 1, b), items = []; let depth = 0, cur = '', q = '';
+  for (const ch of body) {
+    if (q) { cur += ch; if (ch === q) q = ''; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { q = ch; cur += ch; continue; }
+    if (ch === '(') depth++; if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { items.push(cur); cur = ''; } else cur += ch;
+  }
+  items.push(cur);
+  return items.map(s => s.trim()).filter(s => s && !/^(constraint|primary|foreign|unique|check)\b/i.test(s)).map(s => { const m = s.match(/^(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([^\s]+))/); return m ? (m[1] || m[2] || m[3] || m[4]) : ''; });
+}
 const IMP = { abort: false };
 const impShow = (title, pct, tx) => { $('#imp').hidden = false; $('#impTitle').textContent = title; $('#impBar').style.width = Math.max(0, Math.min(100, pct)) + '%'; $('#impTx').textContent = tx || ''; };
 const errText = e => e ? [e.name, e.message].filter((x, i, a) => x && a.indexOf(x) === i).join(': ') || String(e) : '不明';
@@ -2035,12 +2047,19 @@ async function leanLoad(file) {
     if (!tabs.tracks || !tabs.audio || !tabs.covers) throw new Error('Otobakoのライブラリではありません');
     const libid = await leanId(file);
     nd = new SQL.Database(); DB = nd; openMemory(nd); DB.run('PRAGMA foreign_keys = OFF');
+    // columns are matched by NAME: older libraries have a different column order (e.g. bpm added at the end by ALTER TABLE)
     const copy = async (name, pk) => {
-      if (!tabs[name]) return; const cols = q(`PRAGMA table_info(${name})`).map(c => c.name); let n = 0; run('BEGIN');
+      if (!tabs[name]) return; const info = q(`PRAGMA table_info(${name})`), tcols = info.map(c => c.name), sc = sqlColNames(tabs[name].sql), pkName = pk >= 0 ? tcols[pk] : null; let n = 0; run('BEGIN');
+      const use = sc.map((nm, i) => ({ nm, i })).filter(x => tcols.includes(x.nm)), names = use.map(x => x.nm);
+      const missing = info.filter(c => !names.includes(c.name) && c.notnull && c.dflt_value === null && c.name !== pkName);
       try {
         for await (const c of rd.walk(tabs[name].root)) {
-          if (IMP.abort) throw new Error('中止しました'); const rec = await rd.record(c); let v = rec.vals; if (pk >= 0) v[pk] = rec.rowid; v = v.slice(0, cols.length);
-          run(`INSERT OR REPLACE INTO ${name}(${cols.slice(0, v.length).join(',')}) VALUES (${v.map(() => '?').join(',')})`, v);
+          if (IMP.abort) throw new Error('中止しました'); const rec = await rd.record(c);
+          const cols = [...names], v = use.map(x => rec.vals[x.i] === undefined ? null : rec.vals[x.i]);
+          if (pkName) { const k = cols.indexOf(pkName); if (k >= 0) v[k] = rec.rowid; else { cols.push(pkName); v.push(rec.rowid); } }
+          for (const m of missing) { cols.push(m.name); v.push(m.name === 'added' ? Date.now() + rec.rowid : /INT|REAL|NUM/i.test(m.type) ? 0 : ''); }
+          for (let k = 0; k < cols.length; k++) if (v[k] === null) { const ci = info.find(c => c.name === cols[k]); if (ci && ci.notnull && c !== undefined && ci.name !== pkName) v[k] = ci.dflt_value !== null ? (isNaN(+ci.dflt_value) ? String(ci.dflt_value).replace(/^'|'$/g, '') : +ci.dflt_value) : (cols[k] === 'added' ? Date.now() + rec.rowid : /INT|REAL|NUM/i.test(ci.type) ? 0 : ''); }
+          run(`INSERT OR REPLACE INTO ${name}(${cols.join(',')}) VALUES (${v.map(() => '?').join(',')})`, v);
           if (++n % 100 === 0) { impShow('曲の情報を読み込み中', 5, `${name}：${n}件`); await tick(); }
         }
         run('COMMIT');
