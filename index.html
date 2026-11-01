@@ -191,6 +191,18 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .np-meta p{color:var(--dim)}
 .np-opts{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .np-ly{min-height:0;min-width:0;position:relative}
+.tr-bar{position:absolute;top:6px;right:6px;z-index:3}
+.trpop{position:absolute;top:44px;right:6px;z-index:4;width:min(340px,calc(100% - 12px));background:var(--bg2,var(--bg));border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.35);display:grid;gap:10px;max-height:calc(100% - 56px);overflow:auto}
+.trpop[hidden]{display:none}
+.trpop h4{margin:0;font-size:14px}
+.trpop select,.trpop textarea{width:100%;font:inherit;color:var(--fg);background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px}
+.trpop textarea{min-height:70px;font-size:12px}
+.trpop .row2{display:flex;gap:6px;flex-wrap:wrap}
+.trpop .st{font-size:12px;color:var(--dim);min-height:1.2em;overflow-wrap:anywhere}
+.trpop details summary{cursor:pointer;font-size:12px;color:var(--dim)}
+.ly .tr{font-size:.52em;font-weight:600;line-height:1.35;margin-top:2px;opacity:.8}
+.ka-ly .ktr{font-size:clamp(12px,2.2vw,19px);font-weight:600;color:var(--dim);max-width:100%;overflow-wrap:anywhere;margin-top:-4px}
+.ka-ly .n+.ktr{font-size:clamp(11px,1.9vw,15px);color:var(--faint);margin-top:-6px}
 .dischd{padding:16px 16px 6px;font-weight:900;font-size:12px;letter-spacing:.08em;color:var(--dim);border-bottom:1px solid var(--line);margin-bottom:4px}
 .row3{grid-template-columns:1fr 1fr 1fr 1fr 1.4fr!important}
 @media (max-width:760px){.row3{grid-template-columns:1fr 1fr!important}}
@@ -411,7 +423,19 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
           </div>
         </div>
       </div>
-      <div class="np-ly"><div class="ly-scroll" id="lyScroll"><div class="ly-list" id="lyList"></div></div></div>
+      <div class="np-ly"><div class="tr-bar"><button class="btn sm ghost" type="button" id="trBtn" aria-haspopup="dialog">翻訳</button></div>
+        <div class="trpop" id="trPop" hidden role="dialog" aria-label="歌詞の翻訳">
+          <h4>歌詞を翻訳（Google翻訳）</h4>
+          <label>翻訳先の言語<select id="trLang"><option value="ja">日本語</option><option value="en">English</option><option value="de">Deutsch</option><option value="fr">Français</option><option value="es">Español</option><option value="it">Italiano</option><option value="pt">Português</option><option value="ru">Русский</option><option value="ko">한국어</option><option value="zh-CN">中文（简体）</option><option value="zh-TW">中文（繁體）</option></select></label>
+          <div class="row2"><button class="btn sm" type="button" id="trGo">翻訳する</button><button class="btn sm ghost" type="button" id="trShow">表示：ON</button><button class="btn sm ghost" type="button" id="trDel">翻訳を削除</button></div>
+          <div class="st" id="trSt"></div>
+          <details><summary>うまくいかないとき（手動で貼り付け）</summary>
+            <div class="row2" style="margin-top:8px"><button class="btn sm ghost" type="button" id="trCopy">原文をコピー</button><button class="btn sm ghost" type="button" id="trOpen">Google翻訳を開く</button></div>
+            <textarea id="trPaste" placeholder="Google翻訳の結果を貼り付け（原文と同じ行数）" spellcheck="false"></textarea>
+            <button class="btn sm" type="button" id="trApply" style="margin-top:6px">貼り付けた訳を取り込む</button>
+          </details>
+        </div>
+        <div class="ly-scroll" id="lyScroll"><div class="ly-list" id="lyList"></div></div></div>
     </div>
   </section>
 
@@ -845,7 +869,7 @@ CREATE TABLE IF NOT EXISTS tracks(
   id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, artist TEXT NOT NULL DEFAULT '', album TEXT NOT NULL DEFAULT '',
   album_artist TEXT NOT NULL DEFAULT '', year TEXT NOT NULL DEFAULT '', track_no INTEGER NOT NULL DEFAULT 0, genre TEXT NOT NULL DEFAULT '',
   duration REAL NOT NULL DEFAULT 0, file_name TEXT NOT NULL DEFAULT '', mime TEXT NOT NULL DEFAULT 'audio/mpeg', size INTEGER NOT NULL DEFAULT 0,
-  lrc TEXT NOT NULL DEFAULT '', cover_id INTEGER REFERENCES covers(id) ON DELETE SET NULL, bpm REAL NOT NULL DEFAULT 0, added INTEGER NOT NULL, disc INTEGER NOT NULL DEFAULT 0);
+  lrc TEXT NOT NULL DEFAULT '', cover_id INTEGER REFERENCES covers(id) ON DELETE SET NULL, bpm REAL NOT NULL DEFAULT 0, added INTEGER NOT NULL, disc INTEGER NOT NULL DEFAULT 0, trans TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS audio(track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE, data BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS playlists(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS playlist_tracks(playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, pos INTEGER NOT NULL, PRIMARY KEY(playlist_id, track_id));
@@ -862,7 +886,7 @@ function q(sql, p) {
 const run = (sql, p) => DB.run(sql, p || []);
 const lastId = () => DB.exec('SELECT last_insert_rowid()')[0].values[0][0];
 function loadTracks() {
-  S.tracks = q('SELECT id, title, artist, album, album_artist AS albumArtist, year, track_no AS track, genre, duration, file_name AS fileName, mime, size, lrc, cover_id AS coverId, bpm, added, disc FROM tracks');
+  S.tracks = q('SELECT id, title, artist, album, album_artist AS albumArtist, year, track_no AS track, genre, duration, file_name AS fileName, mime, size, lrc, cover_id AS coverId, bpm, added, disc, trans FROM tracks');
   loadPlaylists();
 }
 function pruneCovers() { run('DELETE FROM covers WHERE id NOT IN (SELECT cover_id FROM tracks WHERE cover_id IS NOT NULL)'); }
@@ -900,6 +924,7 @@ function openMemory(db) {
   DB = db; DB.run('PRAGMA foreign_keys = ON'); DB.run(SCHEMA);
   try { if (!q('PRAGMA table_info(tracks)').some(c => c.name === 'bpm')) run('ALTER TABLE tracks ADD COLUMN bpm REAL NOT NULL DEFAULT 0'); } catch (e) {}
   try { if (!q('PRAGMA table_info(tracks)').some(c => c.name === 'disc')) run('ALTER TABLE tracks ADD COLUMN disc INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
+  try { if (!q('PRAGMA table_info(tracks)').some(c => c.name === 'trans')) run("ALTER TABLE tracks ADD COLUMN trans TEXT NOT NULL DEFAULT ''"); } catch (e) {}
 }
 function resetSession() {
   audio.pause(); audio.removeAttribute('src'); if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
@@ -1513,6 +1538,7 @@ function renderLyrics() {
   if (!L.synced) box.classList.add('plain');
   L.lines.forEach((ln, i) => {
     const el = h('div', { class: 'ly' + (ln.text ? '' : ' gap'), text: ln.text });
+    { const tr = L.synced && ln.text ? trText(curTrack(), ln.t) : ''; if (tr) el.append(h('div', { class: 'tr', text: tr })); }
     if (L.synced && ln.text) el.addEventListener('click', () => { audio.currentTime = ln.t; if (audio.paused) audio.play(); sync(); });
     lyEls.push(el); box.append(el);
   });
@@ -1581,7 +1607,7 @@ function trackRow(t, i, ids, numTrack) {
       h('span', { class: 'eq' }, h('i'), h('i'), h('i'))),
     h('div', { class: 't' }, coverEl(t, 's40'),
       h('div', { class: 'tx' },
-        h('div', { class: 'ti' }, h('span', { class: 'e', text: t.title }), t.lrc ? h('span', { class: 'chip hl', text: '歌詞' }) : null, t.sample ? h('span', { class: 'chip', text: 'サンプル' }) : null),
+        h('div', { class: 'ti' }, h('span', { class: 'e', text: t.title }), t.lrc ? h('span', { class: 'chip hl', text: '歌詞' }) : null, t.trans ? h('span', { class: 'chip hl', text: '翻訳' }) : null, t.sample ? h('span', { class: 'chip', text: 'サンプル' }) : null),
         h('div', { class: 'ar', text: artistOf(t) }))),
     h('div', { class: 'al', text: albumOf(t) }),
     h('div', { class: 'du', text: fmt(t.duration) }),
@@ -1748,7 +1774,7 @@ function plRow(t, i, pid, ids) {
   const row = h('div', { class: 'row plr' + (t.id === S.cur ? ' cur' : ''), role: 'button', tabindex: '0', draggable: 'true', 'data-id': String(t.id), 'aria-label': `${i + 1}番目 ${t.title}を再生`, title: 'ドラッグで並べ替え（Alt＋↑↓でも移動）' },
     h('div', { class: 'c1' }, h('span', { class: 'num', text: String(i + 1) }), h('span', { class: 'pl' }, icon('play', 14)), h('span', { class: 'eq' }, h('i'), h('i'), h('i'))),
     h('div', { class: 't' }, coverEl(t, 's40'),
-      h('div', { class: 'tx' }, h('div', { class: 'ti' }, h('span', { class: 'e', text: t.title }), t.lrc ? h('span', { class: 'chip hl', text: '歌詞' }) : null), h('div', { class: 'ar', text: artistOf(t) }))),
+      h('div', { class: 'tx' }, h('div', { class: 'ti' }, h('span', { class: 'e', text: t.title }), t.lrc ? h('span', { class: 'chip hl', text: '歌詞' }) : null, t.trans ? h('span', { class: 'chip hl', text: '翻訳' }) : null), h('div', { class: 'ar', text: artistOf(t) }))),
     h('div', { class: 'al', text: albumOf(t) }),
     h('div', { class: 'du', text: fmt(t.duration) }),
     h('div', { class: 'pla' },
@@ -2184,6 +2210,79 @@ function assignDiscs() {
 }
 $('#btnDisc').addEventListener('click', assignDiscs);
 
+/* ---------- translation ---------- */
+let trShow = true; try { trShow = localStorage.getItem('otobako-trshow') !== '0'; } catch (e) {}
+const trCache = new WeakMap();
+function trMap(t) {
+  if (!t || !t.trans) return null;
+  let c = trCache.get(t); if (c && c.src === t.trans) return c;
+  try { const o = JSON.parse(t.trans); const m = new Map(); for (const [a, b] of o.v) m.set(Math.round(a * 1000), b); c = { src: t.trans, l: o.l, m }; trCache.set(t, c); return c; } catch (e) { return null; }
+}
+function trText(t, time) { if (!trShow) return ''; const c = trMap(t); return c && time != null ? (c.m.get(Math.round(time * 1000)) || '') : ''; }
+function trRefresh() { lyIdx = -2; renderLyrics(); updateLyricPos(true); if (typeof KA !== 'undefined') { KA.lyrSrc = null; KA.idx = -2; } }
+const TR_NAMES = { ja: '日本語', en: 'English', de: 'Deutsch', fr: 'Français', es: 'Español', it: 'Italiano', pt: 'Português', ru: 'Русский', ko: '한국어', 'zh-CN': '中文（简体）', 'zh-TW': '中文（繁體）' };
+const trSt = m => { $('#trSt').textContent = m || ''; };
+function trTargets() { const L = S.lyr; if (!L || !L.synced) return []; return L.lines.filter(l => l.text && !/^[♪♫\s]*$/.test(l.text)); }
+async function gtx(text, tl, signal) {
+  const r = await fetch('https://translate.googleapis.com/translate_a/single', { method: 'POST', signal, headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: 'client=gtx&sl=auto&tl=' + encodeURIComponent(tl) + '&dt=t&dj=0&q=' + encodeURIComponent(text) });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json(); if (!Array.isArray(j) || !Array.isArray(j[0])) throw new Error('想定外の応答');
+  return { text: j[0].map(x => (x && x[0]) || '').join(''), src: j[2] || '' };
+}
+let trBusy = false;
+async function trRun() {
+  const t = curTrack(), tg = trTargets(); if (trBusy) return;
+  if (!t) { trSt('曲を再生してください。'); return; }
+  if (!tg.length) { trSt('時間つきLRCの歌詞がある曲だけ翻訳できます。'); return; }
+  const tl = $('#trLang').value, ac = new AbortController(); trBusy = true; $('#trGo').disabled = true;
+  const out = new Array(tg.length).fill(''); let done = 0, srcLang = '';
+  try {
+    // batches of lines joined by newline; if the line count does not come back equal, redo that batch line by line
+    const batches = []; let cur = [], len = 0;
+    tg.forEach((l, i) => { if (cur.length && (len + l.text.length > 1500 || cur.length >= 40)) { batches.push(cur); cur = []; len = 0; } cur.push(i); len += l.text.length + 1; });
+    if (cur.length) batches.push(cur);
+    for (const b of batches) {
+      let parts = null;
+      try { const r = await gtx(b.map(i => tg[i].text.replace(/\n/g, ' ')).join('\n'), tl, ac.signal); srcLang = srcLang || r.src; const sp = r.text.replace(/\n+$/, '').split('\n'); if (sp.length === b.length) parts = sp; } catch (e) { if (b === batches[0] && e.name !== 'AbortError') throw e; }
+      if (!parts) { parts = []; for (const i of b) { try { const r = await gtx(tg[i].text, tl, ac.signal); srcLang = srcLang || r.src; parts.push(r.text.replace(/\n/g, ' ')); } catch (e) { parts.push(''); } } }
+      b.forEach((i, k) => { out[i] = (parts[k] || '').trim(); }); done += b.length; trSt(`翻訳中… ${done} / ${tg.length}行`);
+    }
+    if (!out.some(Boolean)) throw new Error('結果が空でした');
+    const v = []; tg.forEach((l, i) => { if (out[i] && out[i] !== l.text) v.push([Math.round(l.t * 1000) / 1000, out[i]]); });
+    if (!v.length) { trSt('原文と同じ言語のため、翻訳は作りませんでした。'); return; }
+    trSave(t, { l: tl, s: srcLang, v }); trSt(`${TR_NAMES[tl] || tl}に翻訳しました（${v.length}行）。`);
+  } catch (e) {
+    const msg = (e && e.message) || '不明'; trSt('翻訳できませんでした（' + msg + '）。ネットワークを確認するか、下の「手動で貼り付け」を使ってください。');
+    toast('翻訳できませんでした（' + msg + '）。', 6000);
+  } finally { trBusy = false; $('#trGo').disabled = false; }
+}
+function trSave(t, o) {
+  run('UPDATE tracks SET trans = ? WHERE id = ?', [o ? JSON.stringify(o) : '', t.id]);
+  markDirty(); loadTracks(); const nt = byId(t.id); if (nt && S.cur === nt.id) { trShow = true; try { localStorage.setItem('otobako-trshow', '1'); } catch (e) {} trRefresh(); } trUi(); render(true);
+}
+function trUi() {
+  const t = curTrack(), c = trMap(t); $('#trDel').hidden = !c; $('#trShow').hidden = !c; $('#trShow').textContent = '表示：' + (trShow ? 'ON' : 'OFF');
+  $('#trBtn').textContent = c ? '翻訳 ・' + (TR_NAMES[c.l] || c.l) : '翻訳'; if (c) $('#trLang').value = c.l;
+}
+$('#trBtn').addEventListener('click', () => { const p = $('#trPop'); p.hidden = !p.hidden; if (!p.hidden) { trUi(); trSt(S.lyr && S.lyr.synced ? '' : (curTrack() ? '時間つきLRCの歌詞がある曲だけ翻訳できます。' : '曲を再生してください。')); } });
+$('#trGo').addEventListener('click', trRun);
+$('#trShow').addEventListener('click', () => { trShow = !trShow; try { localStorage.setItem('otobako-trshow', trShow ? '1' : '0'); } catch (e) {} trUi(); trRefresh(); });
+$('#trDel').addEventListener('click', () => { const t = curTrack(); if (t) { trSave(t, null); trSt('翻訳を削除しました。'); } });
+$('#trCopy').addEventListener('click', async () => {
+  const txt = trTargets().map(l => l.text.replace(/\n/g, ' ')).join('\n');
+  try { await navigator.clipboard.writeText(txt); trSt('原文をコピーしました。Google翻訳に貼り付け、結果を下の欄に貼り付けてください。'); } catch (e) { $('#trPaste').value = txt; $('#trPaste').select(); trSt('欄に原文を入れました。コピーしてGoogle翻訳に貼り付けてください。'); }
+});
+$('#trOpen').addEventListener('click', () => window.open('https://translate.google.com/?sl=auto&tl=' + encodeURIComponent($('#trLang').value) + '&op=translate', '_blank', 'noopener'));
+$('#trApply').addEventListener('click', () => {
+  const t = curTrack(), tg = trTargets(), ls = $('#trPaste').value.replace(/\r\n?/g, '\n').split('\n').map(x => x.trim()).filter(Boolean);
+  if (!t || !tg.length) { trSt('時間つきLRCの歌詞がある曲だけ翻訳できます。'); return; }
+  if (ls.length !== tg.length) { trSt(`行数が合いません（原文 ${tg.length}行／貼り付け ${ls.length}行）。空行は無視されます。`); return; }
+  trSave(t, { l: $('#trLang').value, s: '', v: tg.map((l, i) => [Math.round(l.t * 1000) / 1000, ls[i]]) }); $('#trPaste').value = ''; trSt('取り込みました。');
+});
+document.addEventListener('click', e => { const p = $('#trPop'); if (!p.hidden && !p.contains(e.target) && e.target !== $('#trBtn')) p.hidden = true; });
+window.__tr = { trMap, trText, trRun };
+
 /* ---------- karaoke ---------- */
 window.__ka = null;
 const KA = { open: false, stream: null, ctx: null, an: null, src: null, mon: null, buf: null, d: null, raf: 0, fc: 0,
@@ -2368,7 +2467,8 @@ function kaLyrics() {
     KA.wk = words ? { words, total: Math.max(1, words.map(x => x.text).join('').length) } : null;
     const sp = h('span', { text: disp }); KA.cEl = sp;
     box.append(h('div', { class: 'c' + (rest ? ' rest' : '') }, sp));
-    next.forEach(k => box.append(h('div', { class: 'n', text: L.lines[k].text })));
+    { const ct = curTrack(), tx = !rest && ct ? trText(ct, cur.t) : ''; if (tx) box.append(h('div', { class: 'ktr', text: tx })); }
+    next.forEach(k => { box.append(h('div', { class: 'n', text: L.lines[k].text })); const ct = curTrack(), tx = ct ? trText(ct, L.lines[k].t) : ''; if (tx) box.append(h('div', { class: 'ktr', text: tx })); });
   }
   if (KA.cEl && L.lines[i] && L.lines[i].text) {
     const ln = L.lines[i], nx = L.lines[i + 1], end = nx ? nx.t - 0.15 : ln.t + 5;
