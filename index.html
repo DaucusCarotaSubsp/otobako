@@ -191,6 +191,25 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .np-meta p{color:var(--dim)}
 .np-opts{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .np-ly{min-height:0;min-width:0;position:relative}
+.ka-h{margin:14px 0 6px;font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--dim)}
+.ka-sing{border:1px solid var(--line);border-radius:14px;padding:4px 12px 12px;background:rgba(127,127,127,.06)}
+.ka-sing .ka-h{margin-top:10px;font-size:13px;color:var(--fg)}
+.ka-btns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.ka-btns .btn{min-height:46px;height:auto;white-space:normal;line-height:1.25;padding:6px 10px;font-size:14px;font-weight:700;justify-content:center}
+.ka-btns .btn[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ka-btns #kaRec{grid-column:1/-1;min-height:52px;font-size:16px}
+.ka-recrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.ka-recrow:empty{display:none}
+.ka-recrow select{flex:1;min-width:0;min-height:38px}
+.ka-sl{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px;margin-top:8px}
+.ka-sl label{display:grid;gap:2px;font-size:12px;color:var(--dim)}
+.ka-sl input[type=range]{width:100%;accent-color:var(--accent)}
+.ka-prep{margin-top:4px}
+.ka-prep>summary{font-weight:700;font-size:13px;padding:10px 2px;color:var(--fg)}
+.ka-prep .ka-vc{gap:8px}
+.ka-prep .ka-vc .btn,.ka-prep .ka-vc select{min-height:40px}
+.ka-prep .ka-vc>span{flex-basis:100%}
+#ka .ka-sl label,#ka .ka-set .g label:not(.ck){display:block;line-height:1.5}
+#ka .ka-sl label input[type=range],#ka .ka-set .g label input[type=range]{display:block;margin-top:6px}
 .btn.rec-on{background:#e5484d;color:#fff;border-color:transparent}
 .ka-rec{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
 .ka-rec select{max-width:100%}
@@ -459,7 +478,42 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <button class="icon-btn" id="kaPlay" type="button" aria-label="再生"></button>
         <span class="tm" id="kaT0">0:00</span><input type="range" id="kaSeek" min="0" max="1000" value="0" aria-label="再生位置"><span class="tm" id="kaT1">0:00</span>
       </div>
-      <details class="ka-set"><summary>マイクの設定</summary>
+      <section class="ka-sing" id="kaSing" aria-label="歌うときの操作">
+        <h4 class="ka-h">歌うとき</h4>
+        <div class="ka-btns">
+          <button class="btn sm" type="button" id="kaRec">● 歌を録音</button>
+          <button class="btn sm" type="button" id="kaVc" aria-pressed="false">ボーカルを消す：オフ</button>
+          <button class="btn sm" type="button" id="kaTone" aria-pressed="false" hidden>お手本をメロディ音で流す：オフ</button>
+          <button class="btn sm" type="button" id="kaGuide" aria-pressed="false" hidden>お手本ボーカルを流す：オフ</button>
+          <button class="btn sm" type="button" id="kaRecPlay" aria-pressed="false" hidden>録音を重ねて再生：オフ</button>
+        </div>
+        <div class="ka-recrow"><span class="ka-note" id="kaRecSt"></span> <select id="kaRecSel" class="btn sm" aria-label="録音の一覧" hidden></select></div>
+        <div class="ka-sl">
+          <label id="kaVcS" hidden>消す強さ<input type="range" id="kaVcAmt" min="0" max="100" value="100"></label>
+          <label id="kaToneS" hidden>メロディ音の音量<input type="range" id="kaToneVol" min="0" max="100" value="45"></label>
+          <label id="kaGuideS" hidden>お手本の音量<input type="range" id="kaGuideVol" min="0" max="100" value="80"></label>
+          <label id="kaRecVS" hidden>録音の音量<input type="range" id="kaRecVol" min="0" max="200" value="100"></label>
+        </div>
+        <p class="ka-note" id="kaPrepHint">音程バーのお手本やガイド音を使うには、下の「最初に設定する」でお手本を解析してください。</p>
+      </section>
+      <details class="ka-set ka-prep" id="kaPrep"><summary>最初に設定する（お手本の解析・ずれ補正・マイク・録音の管理）</summary>
+        <h4 class="ka-h">お手本の準備</h4>
+        <div class="ka-vc">
+          <button class="btn sm" type="button" id="kaRefBtn">お手本を解析（ボーカル抽出＋音程）</button>
+          <select id="kaVocStr" aria-label="ボーカル抽出の強さ" class="btn sm"><option value="weak">抽出：弱（伴奏が残る）</option><option value="mid" selected>抽出：標準</option><option value="strong">抽出：強（声が痩せる）</option></select>
+          <select id="kaRefSens" aria-label="解析の感度" class="btn sm"><option value="strict">感度：低（ノイズ少なめ）</option><option value="mid" selected>感度：標準</option><option value="high">感度：高（伴奏が厚い曲向け）</option></select>
+          <button class="btn sm" type="button" id="kaReVoc" hidden>ボーカルを抽出し直す</button>
+          <button class="btn sm ghost" type="button" id="kaDelRef" hidden>お手本を削除</button>
+          <span class="ka-note" id="kaRefSt"></span>
+        </div>
+        <h4 class="ka-h">ずれ補正</h4>
+        <div class="ka-sl">
+          <label id="kaGuideO" hidden>お手本のずれ補正 <span id="kaGuideOT">0</span> ms<input type="range" id="kaGuideOff" min="-200" max="200" step="5" value="0"></label>
+          <label id="kaToneO" hidden>メロディ音のずれ補正 <span id="kaToneOT">0</span> ms<input type="range" id="kaToneOff" min="-300" max="300" step="5" value="0"></label>
+          <label id="kaRecOS" hidden>録音のずれ補正 <span id="kaRecOT">0</span> ms<input type="range" id="kaRecOff" min="-300" max="300" step="5" value="0"></label>
+        </div>
+        <p class="ka-note" id="kaVcHint" hidden>中央に定位した音（主にボーカル）を打ち消す簡易処理です。伴奏の中央の音（ベース・キックなど）や、コーラスの一部が変わることがあります。再生は常にモノラル風になります。</p>
+        <h4 class="ka-h">マイク</h4>
         <div class="g">
           <label>マイク感度（声を拾う最小の大きさ）<input type="range" id="kaSens" min="0" max="100" value="60"></label>
           <label>遅延補正：<span id="kaLatTx">150</span> ms（音程バーと歌詞のずれを合わせます）<input type="range" id="kaLat" min="0" max="500" step="10" value="150"></label>
@@ -471,34 +525,10 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
             <input type="file" id="kaImpIn" hidden>
           </div>
         </div>
+        <h4 class="ka-h">録音の管理</h4>
+        <div class="ka-vc"><button class="btn sm ghost" type="button" id="kaRecDl" hidden>この録音を保存（WAV）</button> <button class="btn sm ghost" type="button" id="kaRecDel" hidden>この録音を削除</button></div>
+        <p class="ka-note" id="kaRecHint">録音は、曲の再生位置に合わせて保存されます（録音専用のデータベース）。「ボーカルを消す」をオンにして歌うと、あとで自分の歌だけを曲に重ねて聴けます。イヤホン推奨です。</p>
       </details>
-      <div class="ka-vc">
-        <button class="btn sm" type="button" id="kaVc" aria-pressed="false">ボーカルを消す：オフ</button>
-        <button class="btn sm" type="button" id="kaRefBtn">お手本を解析（ボーカル抽出＋音程）</button>
-        <select id="kaVocStr" aria-label="ボーカル抽出の強さ" class="btn sm"><option value="weak">抽出：弱（伴奏が残る）</option><option value="mid" selected>抽出：標準</option><option value="strong">抽出：強（声が痩せる）</option></select>
-        <button class="btn sm" type="button" id="kaReVoc" hidden>ボーカルを抽出し直す</button>
-        <button class="btn sm ghost" type="button" id="kaDelRef" hidden>お手本を削除</button>
-        <button class="btn sm" type="button" id="kaGuide" aria-pressed="false" hidden>お手本ボーカルを流す：オフ</button>
-        <button class="btn sm" type="button" id="kaTone" aria-pressed="false" hidden>お手本をメロディ音で流す：オフ</button>
-        <label id="kaToneS" hidden>メロディ音の音量<input type="range" id="kaToneVol" min="0" max="100" value="45"></label>
-        <label id="kaToneO" hidden>メロディ音のずれ補正 <span id="kaToneOT">0</span> ms<input type="range" id="kaToneOff" min="-300" max="300" step="5" value="0"></label>
-        <label id="kaGuideS" hidden>お手本の音量<input type="range" id="kaGuideVol" min="0" max="100" value="80"></label>
-        <label id="kaGuideO" hidden>お手本のずれ補正 <span id="kaGuideOT">0</span> ms<input type="range" id="kaGuideOff" min="-200" max="200" step="5" value="0"></label>
-        <select id="kaRefSens" aria-label="解析の感度" class="btn sm"><option value="strict">感度：低（ノイズ少なめ）</option><option value="mid" selected>感度：標準</option><option value="high">感度：高（伴奏が厚い曲向け）</option></select><span class="ka-note" id="kaRefSt"></span>
-        <label id="kaVcS" hidden>消す強さ<input type="range" id="kaVcAmt" min="0" max="100" value="100"></label>
-      </div>
-      <p class="ka-note" id="kaVcHint" hidden>中央に定位した音（主にボーカル）を打ち消す簡易処理です。伴奏の中央の音（ベース・キックなど）や、コーラスの一部が変わることがあります。再生は常にモノラル風になります。</p>
-      <div class="ka-rec" id="kaRecBox">
-        <button class="btn sm" type="button" id="kaRec">● 歌を録音</button>
-        <span class="ka-note" id="kaRecSt"></span>
-        <select id="kaRecSel" class="btn sm" aria-label="録音の一覧" hidden></select>
-        <button class="btn sm" type="button" id="kaRecPlay" aria-pressed="false" hidden>録音を重ねて再生：オフ</button>
-        <label id="kaRecVS" hidden>録音の音量<input type="range" id="kaRecVol" min="0" max="200" value="100"></label>
-        <label id="kaRecOS" hidden>録音のずれ補正 <span id="kaRecOT">0</span> ms<input type="range" id="kaRecOff" min="-300" max="300" step="5" value="0"></label>
-        <button class="btn sm ghost" type="button" id="kaRecDl" hidden>この録音を保存（WAV）</button>
-        <button class="btn sm ghost" type="button" id="kaRecDel" hidden>この録音を削除</button>
-      </div>
-      <p class="ka-note" id="kaRecHint">録音は、曲の再生位置に合わせて保存されます（録音専用のデータベース）。「ボーカルを消す」をオンにして歌うと、あとで自分の歌だけを曲に重ねて聴けます。イヤホン推奨です。</p>
       <p class="ka-msg" id="kaMsg" hidden></p>
     </div>
   </section>
@@ -2565,7 +2595,7 @@ function kaOpen() {
   hydrateIcons($('#ka')); kaBuild(); kaLoadRef(); kaRead(null); kdStat(); kdMigrate().then(() => kaLoadRef());
   cancelAnimationFrame(KA.raf); KA.raf = requestAnimationFrame(kaLoop);
 }
-function kaClose() { toneOff(); guideOff(); recPlayOff(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
+function kaClose() { toneOff(); guideKill(); recKill(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
 /* reference melody: estimate the lead line from the centre of the stereo image (low accuracy by design) */
 const REF_SR = 16000, REF_HOP = 400, REF_W = 512, REF_TAU_MAX = 200, REF_TAU_MIN = 14;
 function bqCoef(type, f, sr, Q) {
@@ -2718,7 +2748,7 @@ $('#kaKdOut').addEventListener('click', kdExport);
 $('#kaKdIn').addEventListener('click', () => $('#kaImpIn').click());
 $('#kaImpIn').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) kdImport(f); });
 $('#btnDbVac').addEventListener('click', tidyDb);
-$('#kaDelRef').addEventListener('click', async () => { const t = curTrack(); if (!t) return; guideOff(); await kdRemove(trackKey(t)); KA.ref = null; await kaLoadRef(); kdStat(); toast('この曲のお手本を削除しました。', 3000); });
+$('#kaDelRef').addEventListener('click', async () => { const t = curTrack(); if (!t) return; guideKill(); await kdRemove(trackKey(t)); KA.ref = null; await kaLoadRef(); kdStat(); toast('この曲のお手本を削除しました。', 3000); });
 
 /* centre extraction: keep the part of the mix that is identical in both channels (usually the lead vocal) */
 const FFT = { N: 0, rev: null, cs: null, sn: null };
@@ -2807,7 +2837,7 @@ GD.el.preload = 'auto';
 // is steered continuously: its speed is nudged (up to +-8%) until it sits exactly on the main track (+ manual offset).
 GD.off = 0; try { GD.off = +localStorage.getItem('otobako-guide-off') || 0; } catch (e) {}
 function guideSync(force) {
-  if (!GD.on) return;
+  if (!GD.live) return;
   const base = audio.playbackRate || 1;
   if (audio.paused) { if (!GD.el.paused) GD.el.pause(); GD.el.playbackRate = base; if (force) { try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000); } catch (e) {} } return; }
   if (GD.el.paused) GD.el.play().catch(() => {});
@@ -2817,16 +2847,18 @@ function guideSync(force) {
   if (force || Math.abs(raw) > 0.25) { GD.ea = undefined; try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000 + 0.03 * base); } catch (er) {} GD.el.playbackRate = base; return; }
   GD.el.playbackRate = Math.abs(e) < 0.012 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
 }
+function guideKill() { GD.live = false; guideOff(); try { GD.el.pause(); } catch (e) {} }
 function guideOff() {
-  GD.on = false; try { GD.el.pause(); if (GD.gain) GD.gain.gain.value = 0; } catch (e) {}
+  GD.on = false; try { if (GD.gain) GD.gain.gain.value = 0; } catch (e) {}
   const b = $('#kaGuide'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = 'お手本ボーカルを流す：オフ'; }
 }
 async function guideOn() {
   const t = curTrack(); if (!t) return;
+  if (GD.live && GD.key === trackKey(t) && GD.gain) { GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true; const b0 = $('#kaGuide'); b0.setAttribute('aria-pressed', 'true'); b0.textContent = 'お手本ボーカルを流す：オン'; guideSync(true); return; }
   const row = await kdGet('vocal', trackKey(t)).catch(() => null); if (!row) { kaMsg('先に「お手本を解析」を実行してください。'); return; }
   const oldG = GD.url;
   try { await audioGraph(); guideGraph(); } catch (e) { kaMsg('お手本ボーカルを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
-  GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; if (oldG) URL.revokeObjectURL(oldG); GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true;
+  GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; if (oldG) URL.revokeObjectURL(oldG); GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true; GD.live = true; GD.key = trackKey(t);
   const b = $('#kaGuide'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'お手本ボーカルを流す：オン';
   try { await GD.el.play(); } catch (e) { kaMsg('お手本ボーカルを再生できませんでした。'); }
   if (audio.paused) GD.el.pause(); guideSync(true);
@@ -2841,7 +2873,7 @@ function kaUiVocal(has) {
   $('#kaGuide').hidden = !has; $('#kaGuideS').hidden = !has; $('#kaGuideO').hidden = !has; $('#kaReVoc').hidden = !has; $('#kaDelRef').hidden = !has; $('#kaVocStr').hidden = !has && false;
 }
 async function kaLoadRef() {
-  const my = ++KA.anTok; KA.analyzing = false; guideOff(); recPlayOff(); recList(); const t = curTrack(); KA.refId = t ? t.id : null; if (KA.key) keySet(0);
+  const my = ++KA.anTok; KA.analyzing = false; guideKill(); recKill(); recList(); const t = curTrack(); KA.refId = t ? t.id : null; if (KA.key) keySet(0);
   kaSetRef(null); kaUiVocal(false); $('#kaRefBtn').disabled = !t; if (!t) return;
   let mel = null, info = null; try { const k = trackKey(t); mel = await kdGet('melody', k); info = await kdGet('info', k); } catch (e) {}
   if (KA.anTok !== my) return;
@@ -3075,7 +3107,7 @@ async function recStart() {
   if (RC.r) return; const t = curTrack(); if (!t) return; kaMsg('');
   if (!KA.stream) await kaMicOn(); if (!KA.stream || !KA.ctx) return;
   if (!KA.ctx.createScriptProcessor) { kaMsg('この環境では録音できません（音声処理に未対応）。'); return; }
-  recPlayOff();
+  recKill();
   if (audio.paused) { try { await audio.play(); } catch (e) {} }
   const c = KA.ctx, sp = c.createScriptProcessor(4096, 1, 1), z = c.createGain(); z.gain.value = 0; KA.src.connect(sp); sp.connect(z); z.connect(c.destination);
   const r = RC.r = { sp, z, sr: c.sampleRate, out: 24000, chunks: [], n: 0, ph: 0, acc: 0, accN: 0, t0: null, last: 0, tk: trackKey(t), title: t.title, begun: Date.now() };
@@ -3113,7 +3145,7 @@ async function recStop(silent, why) {
   } catch (e) { kaMsg('録音を保存できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。端末の空き容量を確認してください。'); }
 }
 function recSync(force) {
-  if (!RC.on || !RC.cur) return;
+  if (!RC.live || !RC.cur) return;
   const base = audio.playbackRate || 1, el = RC.el, target = audio.currentTime - RC.cur.t0 + RC.off / 1000;
   if (target < 0 || (el.duration && target > el.duration) || audio.paused) { if (!el.paused) el.pause(); el.playbackRate = base; if (force && target >= 0) { try { el.currentTime = target; } catch (e) {} } return; }
   if (el.paused) el.play().catch(() => {});
@@ -3121,15 +3153,17 @@ function recSync(force) {
   if (force || Math.abs(raw) > 0.25) { RC.ea = undefined; try { el.currentTime = Math.max(0, target + 0.03 * base); } catch (er) {} el.playbackRate = base; return; }
   el.playbackRate = Math.abs(e) < 0.012 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
 }
+function recKill() { RC.live = false; recPlayOff(); try { RC.el.pause(); } catch (e) {} }
 function recPlayOff() {
-  RC.on = false; try { RC.el.pause(); if (RC.gain) RC.gain.gain.value = 0; } catch (e) {}   // src stays attached: tearing it down under a WebAudio source can hang iOS
+  RC.on = false; try { if (RC.gain) RC.gain.gain.value = 0; } catch (e) {}   // muted, not paused: pausing a WebAudio-fed element while the song plays hung iOS
   const b = $('#kaRecPlay'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = '録音を重ねて再生：オフ'; }
 }
 async function recPlayOn() {
   const key = $('#kaRecSel').value, info = RC.list.find(x => x.key === key); if (!info) return; kaMsg('');
+  if (RC.live && RC.curKey === key && RC.gain) { RC.gain.gain.value = $('#kaRecVol').value / 100; RC.on = true; const b0 = $('#kaRecPlay'); b0.setAttribute('aria-pressed', 'true'); b0.textContent = '録音を重ねて再生：オン'; recSync(true); return; }
   const row = await recTx(['wav'], 'readonly', w => w.get(key)).catch(() => null); if (!row) { kaMsg('録音を読み込めませんでした。'); return; }
   try { await audioGraph(); if (!RC.src) { const c = VC.ctx; RC.src = c.createMediaElementSource(RC.el); RC.gain = c.createGain(); RC.src.connect(RC.gain); RC.gain.connect(c.destination); } } catch (e) { kaMsg('録音の再生を開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
-  recPlayOff(); const oldUrl = RC.url; RC.cur = info; RC.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); RC.el.src = RC.url; if (oldUrl) URL.revokeObjectURL(oldUrl); RC.gain.gain.value = $('#kaRecVol').value / 100; RC.on = true;
+  recPlayOff(); const oldUrl = RC.url; RC.cur = info; RC.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); RC.el.src = RC.url; if (oldUrl) URL.revokeObjectURL(oldUrl); RC.gain.gain.value = $('#kaRecVol').value / 100; RC.on = true; RC.live = true; RC.curKey = key;
   const b = $('#kaRecPlay'); b.setAttribute('aria-pressed', 'true'); b.textContent = '録音を重ねて再生：オン';
   if (audio.paused) { try { await audio.play(); } catch (e) {} }
   recSync(true);
@@ -3148,7 +3182,7 @@ $('#kaRecDl').addEventListener('click', async () => {
   download(new Blob([row.data], { type: 'audio/wav' }), `${info.title.replace(/[\\/:*?"<>|]/g, '_')}_録音_${new Date(info.when).toISOString().slice(0, 16).replace(/[-T:]/g, '')}.wav`);
 });
 $('#kaRecDel').addEventListener('click', async () => {
-  const key = $('#kaRecSel').value; if (!key || !confirm('選んだ録音を削除しますか？')) return; recPlayOff();
+  const key = $('#kaRecSel').value; if (!key || !confirm('選んだ録音を削除しますか？')) return; recKill();
   try { await recTx(['info', 'wav'], 'readwrite', (i, w) => { i.delete(key); w.delete(key); }); toast('録音を削除しました。'); } catch (e) { kaMsg('削除できませんでした。'); }
   recList();
 });
@@ -3169,7 +3203,7 @@ function toneAt(t) {
   return s[a] && s[a].t0 <= t ? s[a] : null;
 }
 function toneUi() {
-  const has = !!(KA.ref && KA.ref.notes.length); if (!has) toneOff();
+  const has = !!(KA.ref && KA.ref.notes.length); if (!has) toneOff(); { const ph = $('#kaPrepHint'); if (ph) ph.hidden = has; }
   for (const id of ['#kaTone', '#kaToneS', '#kaToneO']) $(id).hidden = !has;
 }
 function toneOff() {
