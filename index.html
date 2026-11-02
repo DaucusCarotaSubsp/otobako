@@ -511,6 +511,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <div class="ka-sl">
           <label id="kaGuideO" hidden>お手本のずれ補正 <span id="kaGuideOT">0</span> ms<input type="range" id="kaGuideOff" min="-200" max="200" step="5" value="0"></label>
           <label id="kaToneO" hidden>メロディ音のずれ補正 <span id="kaToneOT">0</span> ms<input type="range" id="kaToneOff" min="-300" max="300" step="5" value="0"></label>
+          <label id="kaToneMS">メロディ音のつなぎ方<select id="kaToneMode" class="btn sm"><option value="smooth">なめらか（ゆれ・途切れをならす）</option><option value="fine">細かい（抽出どおり）</option></select></label>
           <label id="kaRecOS" hidden>録音のずれ補正 <span id="kaRecOT">0</span> ms<input type="range" id="kaRecOff" min="-300" max="300" step="5" value="0"></label>
         </div>
         <p class="ka-note" id="kaVcHint" hidden>中央に定位した音（主にボーカル）を打ち消す簡易処理です。伴奏の中央の音（ベース・キックなど）や、コーラスの一部が変わることがあります。再生は常にモノラル風になります。</p>
@@ -3218,12 +3219,35 @@ $('#kaRecDel').addEventListener('click', async () => {
 /* ---------- guide melody tone ---------- */
 const TN = { on: false, osc: null, g: null, vg: null, timer: 0, off: 0, segs: [], src: null };
 window.__tn = TN; try { TN.off = +localStorage.getItem('otobako-tone-off') || 0; } catch (e) {}
+TN.mode = 'smooth'; try { TN.mode = localStorage.getItem('otobako-tone-mode') === 'fine' ? 'fine' : 'smooth'; } catch (e) {}
 function kaSetRef(u8, hop) { kaSetRef0(u8, hop); toneUi(); }
-// notes closer than 0.12 s are joined so the tone does not stutter; the pitch still follows each note
+// The estimated note line is jittery (short blips, octave errors, tiny gaps). For the guide tone it is cleaned up:
+// blips folded into their neighbours, near-equal pitches merged, gaps (breaths) bridged, and the pitch glides between notes.
 function toneSegs() {
-  const ns = KA.ref ? KA.ref.notes : []; if (TN.src === ns) return TN.segs; const out = [];
-  for (let i = 0; i < ns.length; i++) { const n = ns[i], nx = ns[i + 1]; out.push({ t0: n.t0, t1: nx && nx.t0 - n.t1 <= 0.12 ? nx.t0 : n.t1, m: n.m }); }
-  TN.src = ns; TN.segs = out; return out;
+  const ns = KA.ref ? KA.ref.notes : [], mode = TN.mode || 'smooth'; if (TN.src === ns && TN.segM === mode) return TN.segs;
+  let a = ns.map(n => ({ t0: n.t0, t1: n.t1, m: n.m })), out = [];
+  if (mode === 'fine') {
+    for (let i = 0; i < a.length; i++) { const n = a[i], nx = a[i + 1]; out.push({ t0: n.t0, t1: nx && nx.t0 - n.t1 <= 0.12 ? nx.t0 : n.t1, m: n.m }); }
+  } else {
+    const GAP = 0.45, SHORT = 0.22;
+    // 1) isolated blips (very short, nothing near) are dropped
+    a = a.filter((n, i) => n.t1 - n.t0 >= 0.1 || (a[i - 1] && n.t0 - a[i - 1].t1 < 0.3) || (a[i + 1] && a[i + 1].t0 - n.t1 < 0.3));
+    // 2) short notes: fix octave errors against the neighbours, then pull toward the neighbours' median
+    for (let i = 0; i < a.length; i++) {
+      const n = a[i], pv = a[i - 1], nx = a[i + 1]; if (n.t1 - n.t0 >= SHORT) continue;
+      const ref = pv && n.t0 - pv.t1 < GAP ? pv.m : nx && nx.t0 - n.t1 < GAP ? nx.m : null; if (ref === null) continue;
+      let d = n.m - ref; if (Math.abs(d) > 9) { const k = Math.round(d / 12); if (k && Math.abs(d - 12 * k) < 4) n.m -= 12 * k; }
+      if (pv && nx && pv.m !== undefined && Math.abs(pv.m - nx.m) < 2.5) { const md = [pv.m, n.m, nx.m].sort((x, y) => x - y)[1]; n.m = md; }
+    }
+    // 3) merge neighbours that are close in pitch and not far apart in time; bridge other gaps by holding the tone
+    for (const n of a) {
+      const l = out[out.length - 1];
+      if (l && n.t0 - l.t1 <= GAP && Math.abs(n.m - l.m) <= 0.9) { const w1 = l.t1 - l.t0, w2 = n.t1 - n.t0; l.m = (l.m * w1 + n.m * w2) / (w1 + w2); l.t1 = n.t1; }
+      else out.push({ t0: n.t0, t1: n.t1, m: n.m });
+    }
+    for (let i = 0; i < out.length - 1; i++) if (out[i + 1].t0 - out[i].t1 <= GAP) out[i].t1 = out[i + 1].t0;
+  }
+  TN.src = ns; TN.segM = mode; TN.segs = out; return out;
 }
 function toneAt(t) {
   const s = toneSegs(); let a = 0, b = s.length;
@@ -3245,7 +3269,7 @@ function toneTick() {
   const t = (audio.currentTime || 0) + TN.off / 1000 + 0.03, s = toneAt(t);
   if (s) {
     const f = 440 * Math.pow(2, (s.m + KA.shift + KA.key - 69) / 12);
-    TN.osc.frequency.setTargetAtTime(f, now, TN.last === s ? 0.02 : 0.008); TN.g.gain.setTargetAtTime(1, now, 0.015); TN.last = s;
+    TN.osc.frequency.setTargetAtTime(f, now, TN.last === s ? 0.02 : (TN.mode === 'fine' ? 0.008 : 0.03)); TN.g.gain.setTargetAtTime(1, now, 0.015); TN.last = s;
   } else { TN.g.gain.setTargetAtTime(0, now, 0.025); TN.last = null; }
 }
 async function toneOn() {
@@ -3262,6 +3286,7 @@ async function toneOn() {
   clearInterval(TN.timer); TN.timer = setInterval(toneTick, 20);
 }
 $('#kaTone').addEventListener('click', () => TN.on ? toneOff() : toneOn());
+$('#kaToneMode').value = TN.mode; $('#kaToneMode').addEventListener('change', e => { TN.mode = e.target.value; try { localStorage.setItem('otobako-tone-mode', TN.mode); } catch (er) {} TN.last = null; });
 $('#kaToneVol').addEventListener('input', e => { if (TN.vg) TN.vg.gain.value = e.target.value / 100 * 0.5; });
 $('#kaToneOff').value = TN.off; $('#kaToneOT').textContent = TN.off;
 $('#kaToneOff').addEventListener('input', e => { TN.off = +e.target.value; $('#kaToneOT').textContent = TN.off; try { localStorage.setItem('otobako-tone-off', TN.off); } catch (er) {} });
