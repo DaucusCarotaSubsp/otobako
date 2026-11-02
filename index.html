@@ -489,6 +489,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         </div>
         <div class="ka-recrow"><span class="ka-note" id="kaRecSt"></span> <select id="kaRecSel" class="btn sm" aria-label="録音の一覧" hidden></select></div>
         <div class="ka-sl">
+          <label id="kaSongVS">曲の音量（録音を重ねるときは下げると歌が前に出ます）<input type="range" id="kaSongVol" min="0" max="100" value="100"></label>
           <label id="kaVcS" hidden>消す強さ<input type="range" id="kaVcAmt" min="0" max="100" value="100"></label>
           <label id="kaToneS" hidden>メロディ音の音量<input type="range" id="kaToneVol" min="0" max="100" value="45"></label>
           <label id="kaGuideS" hidden>お手本の音量<input type="range" id="kaGuideVol" min="0" max="100" value="80"></label>
@@ -3003,7 +3004,7 @@ async function audioGraph() {
     VC.wet = c.createGain(); VC.dry = c.createGain(); VC.wet.gain.value = 0; VC.dry.gain.value = 1;
     side.connect(VC.wet); lp.connect(VC.wet); src.connect(VC.dry);
     const mix = c.createGain(); VC.wet.connect(mix); VC.dry.connect(mix);
-    VC.ps = new AudioWorkletNode(c, 'otobako-ps', { outputChannelCount: [2] }); mix.connect(VC.ps); VC.ps.connect(c.destination);
+    VC.ps = new AudioWorkletNode(c, 'otobako-ps', { outputChannelCount: [2] }); mix.connect(VC.ps); VC.sg = c.createGain(); VC.sg.gain.value = ($('#kaSongVol') ? $('#kaSongVol').value : 100) / 100; VC.ps.connect(VC.sg); VC.sg.connect(c.destination);
     VC.anP = c.createAnalyser(); VC.anP.fftSize = 4096; VC.ps.connect(VC.anP);
     VC.anO = c.createAnalyser(); VC.anW = c.createAnalyser(); VC.anR = c.createAnalyser(); VC.anO.fftSize = VC.anW.fftSize = VC.anR.fftSize = 2048;
     src.connect(VC.anO); side.connect(VC.anW); sp.connect(VC.anR, 1);
@@ -3144,36 +3145,63 @@ async function recStop(silent, why) {
     toast((why || '録音を保存しました。') + '（' + recFmt(n / r.out) + '）', 5000); await recList(key);
   } catch (e) { kaMsg('録音を保存できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。端末の空き容量を確認してください。'); }
 }
+// The recording is played as an AudioBuffer on the same AudioContext as the song (like a mixer track), started on the
+// context's own clock. No playbackRate nudging / element seeking, which is what made the old overlay sound choppy.
+function recStopSrc() { const n = RC.sn; RC.sn = null; if (n) { try { n.onended = null; n.stop(); } catch (e) {} try { n.disconnect(); } catch (e) {} } }
+function recPos() { return RC.sn ? RC.p0 + (VC.ctx.currentTime - RC.c0) * RC.rate : null; }
 function recSync(force) {
-  if (!RC.live || !RC.cur) return;
-  const base = audio.playbackRate || 1, el = RC.el, target = audio.currentTime - RC.cur.t0 + RC.off / 1000;
-  if (target < 0 || (el.duration && target > el.duration) || audio.paused) { if (!el.paused) el.pause(); el.playbackRate = base; if (force && target >= 0) { try { el.currentTime = target; } catch (e) {} } return; }
-  if (el.paused) el.play().catch(() => {});
-  const raw = el.currentTime - target; RC.ea = force || RC.ea === undefined ? raw : RC.ea * 0.75 + raw * 0.25; const e = RC.ea;
-  if (force || Math.abs(raw) > 0.25) { RC.ea = undefined; try { el.currentTime = Math.max(0, target + 0.03 * base); } catch (er) {} el.playbackRate = base; return; }
-  el.playbackRate = Math.abs(e) < 0.012 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
+  if (!RC.live || !RC.cur || !RC.buf || !VC.ctx) return;
+  const c = VC.ctx, rate = audio.playbackRate || 1, target = audio.currentTime - RC.cur.t0 + RC.off / 1000;
+  if (audio.paused) { recStopSrc(); RC.ea = undefined; return; }
+  if (target > RC.buf.duration) { recStopSrc(); return; }
+  if (RC.sn && !force) {
+    const raw = recPos() - target; RC.ea = RC.ea === undefined ? raw : RC.ea * 0.8 + raw * 0.2;
+    if (Math.abs(RC.ea) < 0.09 && Math.abs(raw) < 0.25 && rate === RC.rate) return;   // within tolerance: leave it alone
+  }
+  recStopSrc(); RC.ea = undefined;
+  const lead = 0.06, pos = target + lead * rate, n = c.createBufferSource(); n.buffer = RC.buf; n.playbackRate.value = rate; n.connect(RC.mg);
+  let when = c.currentTime + lead, off = pos;
+  if (pos < 0) { when += -pos / rate; off = 0; }
+  n.onended = () => { if (RC.sn === n) RC.sn = null; };
+  n.start(when, off); RC.sn = n; RC.c0 = when; RC.p0 = off; RC.rate = rate;
 }
-function recKill() { RC.live = false; recPlayOff(); try { RC.el.pause(); } catch (e) {} }
+function recKill() { RC.live = false; recPlayOff(); recStopSrc(); }
 function recPlayOff() {
-  RC.on = false; try { if (RC.gain) RC.gain.gain.value = 0; } catch (e) {}   // muted, not paused: pausing a WebAudio-fed element while the song plays hung iOS
+  RC.on = false; try { if (RC.gain) RC.gain.gain.value = 0; } catch (e) {}   // muted; the track keeps its place
   const b = $('#kaRecPlay'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = '録音を重ねて再生：オフ'; }
 }
+function recGainSet() { if (RC.gain) RC.gain.gain.value = RC.on ? $('#kaRecVol').value / 100 : 0; }
 async function recPlayOn() {
   const key = $('#kaRecSel').value, info = RC.list.find(x => x.key === key); if (!info) return; kaMsg('');
-  if (RC.live && RC.curKey === key && RC.gain) { RC.gain.gain.value = $('#kaRecVol').value / 100; RC.on = true; const b0 = $('#kaRecPlay'); b0.setAttribute('aria-pressed', 'true'); b0.textContent = '録音を重ねて再生：オン'; recSync(true); return; }
+  const mark = () => { const b = $('#kaRecPlay'); b.setAttribute('aria-pressed', 'true'); b.textContent = '録音を重ねて再生：オン'; };
+  if (RC.live && RC.curKey === key && RC.gain && RC.buf) { RC.on = true; recGainSet(); mark(); recSync(true); return; }
   const row = await recTx(['wav'], 'readonly', w => w.get(key)).catch(() => null); if (!row) { kaMsg('録音を読み込めませんでした。'); return; }
-  try { await audioGraph(); if (!RC.src) { const c = VC.ctx; RC.src = c.createMediaElementSource(RC.el); RC.gain = c.createGain(); RC.src.connect(RC.gain); RC.gain.connect(c.destination); } } catch (e) { kaMsg('録音の再生を開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
-  recPlayOff(); const oldUrl = RC.url; RC.cur = info; RC.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); RC.el.src = RC.url; if (oldUrl) URL.revokeObjectURL(oldUrl); RC.gain.gain.value = $('#kaRecVol').value / 100; RC.on = true; RC.live = true; RC.curKey = key;
-  const b = $('#kaRecPlay'); b.setAttribute('aria-pressed', 'true'); b.textContent = '録音を重ねて再生：オン';
+  try {
+    await audioGraph(); const c = VC.ctx;
+    const ab = row.data.buffer.slice(row.data.byteOffset, row.data.byteOffset + row.data.byteLength);
+    const buf = await new Promise((res, rej) => { const r = c.decodeAudioData(ab, res, rej); if (r && r.then) r.then(res, rej); });
+    if (!RC.gain) {   // record -> normalise -> level -> light compressor -> out (the recording sits on top of the song)
+      RC.mg = c.createGain(); RC.gain = c.createGain(); const comp = c.createDynamicsCompressor();
+      comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 3; comp.attack.value = 0.004; comp.release.value = 0.2;
+      RC.mg.connect(RC.gain); RC.gain.connect(comp); comp.connect(c.destination);
+    }
+    const d = buf.getChannelData(0); let pk = 0; for (let i = 0; i < d.length; i++) { const v = d[i] < 0 ? -d[i] : d[i]; if (v > pk) pk = v; }
+    RC.mg.gain.value = pk > 0.002 ? Math.min(12, 0.7 / pk) : 1;
+    recStopSrc(); RC.buf = buf;
+  } catch (e) { kaMsg('録音の再生を開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
+  RC.cur = info; RC.curKey = key; RC.live = true; RC.on = true; recGainSet(); mark();
   if (audio.paused) { try { await audio.play(); } catch (e) {} }
   recSync(true);
 }
-['play', 'pause', 'seeked', 'ratechange'].forEach(ev => audio.addEventListener(ev, () => recSync(ev === 'seeked')));
+['play', 'pause', 'seeked', 'ratechange'].forEach(ev => audio.addEventListener(ev, () => recSync(ev === 'seeked' || ev === 'ratechange')));
 audio.addEventListener('ended', () => { if (RC.r) recStop(false, '曲が終わったので録音を保存しました。'); });
 $('#kaRec').addEventListener('click', () => RC.r ? recStop(false) : recStart());
 $('#kaRecPlay').addEventListener('click', () => RC.on ? recPlayOff() : recPlayOn());
 $('#kaRecSel').addEventListener('change', () => { if (RC.on) recPlayOn(); });
-$('#kaRecVol').addEventListener('input', e => { if (RC.gain) RC.gain.gain.value = e.target.value / 100; });
+$('#kaRecVol').addEventListener('input', recGainSet);
+window.__rc.pos = recPos;
+// mixer: song level (a gain after the whole song chain)
+$('#kaSongVol').addEventListener('input', async e => { try { await audioGraph(); VC.sg.gain.value = e.target.value / 100; } catch (er) { audio.volume = e.target.value / 100; } });
 $('#kaRecOff').value = RC.off; $('#kaRecOT').textContent = RC.off;
 $('#kaRecOff').addEventListener('input', e => { RC.off = +e.target.value; $('#kaRecOT').textContent = RC.off; try { localStorage.setItem('otobako-rec-off', RC.off); } catch (er) {} recSync(true); });
 $('#kaRecDl').addEventListener('click', async () => {
