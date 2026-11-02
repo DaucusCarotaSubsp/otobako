@@ -208,6 +208,17 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .ka-prep .ka-vc{gap:8px}
 .ka-prep .ka-vc .btn,.ka-prep .ka-vc select{min-height:40px}
 .ka-prep .ka-vc>span{flex-basis:100%}
+/* narrow windows: the setup panel scrolls inside itself, so the lyrics stay on screen */
+#ka .ka-prep[open]{max-height:58vh;overflow-y:auto;overscroll-behavior:contain;padding-right:6px}
+/* wide windows (Mac): lyrics + pitch on the left, controls in their own scrolling column on the right */
+@media (min-width:900px){
+  #ka{overflow:hidden;grid-template-columns:minmax(0,1.5fr) minmax(340px,1fr);grid-template-rows:auto minmax(0,1fr) minmax(150px,34vh);align-content:stretch;column-gap:20px}
+  #ka .ka-top{grid-column:1/-1}
+  #ka .ka-ly{grid-column:1;grid-row:2}
+  #ka .ka-pitch{grid-column:1;grid-row:3}
+  #ka .ka-ctl{grid-column:2;grid-row:2/4;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:start;padding-right:6px}
+  #ka .ka-prep[open]{max-height:none;overflow:visible;padding-right:0}
+}
 #ka .ka-sl label,#ka .ka-set .g label:not(.ck){display:block;line-height:1.5}
 #ka .ka-sl label input[type=range],#ka .ka-set .g label input[type=range]{display:block;margin-top:6px}
 .btn.rec-on{background:#e5484d;color:#fff;border-color:transparent}
