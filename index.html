@@ -3145,6 +3145,9 @@ audio.addEventListener('play', () => { if (VC.ctx && VC.ctx.state === 'suspended
 $('#kaVc').addEventListener('click', vcToggle);
 $('#kaVcAmt').addEventListener('input', vcApply);
 $('#npKaraoke').addEventListener('click', kaOpen);
+$('#btnLyr').addEventListener('click', () => { if (KA.open) kaClose(); });
+new MutationObserver(() => { if (KA.open && ($('#ka').hidden || !$('#ka').offsetParent && getComputedStyle($('#ka')).display === 'none')) kaClose(); }).observe($('#ka'), { attributes: true, attributeFilter: ['hidden', 'style', 'class'] });
+setInterval(() => { if (!KA.open && (KA.stream || KA.keep)) kaMicOff(true); }, 1500);
 $('#kaClose').addEventListener('click', kaClose);
 $('#kaMic').addEventListener('click', () => KA.stream ? kaMicOff() : kaMicOn());
 $('#kaPlay').addEventListener('click', () => { if (audio.paused) audio.play(); else audio.pause(); });
