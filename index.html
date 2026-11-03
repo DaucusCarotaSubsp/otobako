@@ -557,12 +557,14 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
           <select id="kaRefSens" aria-label="解析の感度" class="btn sm"><option value="strict">感度：低（ノイズ少なめ）</option><option value="mid" selected>感度：標準</option><option value="high">感度：高（伴奏が厚い曲向け）</option></select>
           <button class="btn sm" type="button" id="kaReVoc" hidden>ボーカルを抽出し直す</button>
           <button class="btn sm ghost" type="button" id="kaDelRef" hidden>お手本を削除</button>
+          <button class="btn sm" type="button" id="kaImpVocal">ボーカル音声ファイルを取り込む</button><input type="file" id="kaVocIn" accept="audio/*,.wav,.mp3,.m4a" hidden>
           <span class="ka-note" id="kaRefSt"></span>
         </div>
         <h4 class="ka-h">ずれ補正</h4>
         <div class="ka-sl">
           <label id="kaGuideO" hidden>お手本のずれ補正 <span id="kaGuideOT">0</span> ms<input type="range" id="kaGuideOff" min="-200" max="200" step="5" value="0"></label>
           <label id="kaToneO" hidden>メロディ音のずれ補正 <span id="kaToneOT">0</span> ms<input type="range" id="kaToneOff" min="-300" max="300" step="5" value="0"></label>
+          <label id="kaToneRS">メロディ音の高さ<select id="kaToneReg" class="btn sm"><option value="k1">約1kHz（スマホのスピーカーでも聞こえやすい）</option><option value="orig">元の高さ（歌の音域）</option></select></label>
           <label id="kaToneMS">メロディ音のつなぎ方<select id="kaToneMode" class="btn sm"><option value="smooth">なめらか（ゆれ・途切れをならす）</option><option value="fine">細かい（抽出どおり）</option></select></label>
           <label id="kaRecOS" hidden>録音のずれ補正 <span id="kaRecOT">0</span> ms<input type="range" id="kaRecOff" min="-300" max="300" step="5" value="0"></label>
         </div>
@@ -2910,34 +2912,41 @@ GD.el.preload = 'auto';
 // two <audio> elements have independent clocks, so a one-off seek leaves an echo-like offset. Instead the guide
 // is steered continuously: its speed is nudged (up to +-8%) until it sits exactly on the main track (+ manual offset).
 GD.off = 0; try { GD.off = +localStorage.getItem('otobako-guide-off') || 0; } catch (e) {}
+function gdStopSrc() { const n = GD.sn; GD.sn = null; if (n) { try { n.onended = null; n.stop(); } catch (e) {} try { n.disconnect(); } catch (e) {} } }
 function guideSync(force) {
-  if (!GD.live) return;
-  const base = audio.playbackRate || 1;
-  if (audio.paused) { if (!GD.el.paused) GD.el.pause(); GD.el.playbackRate = base; if (force) { try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000); } catch (e) {} } return; }
-  if (GD.el.paused) GD.el.play().catch(() => {});
-  const raw = GD.el.currentTime - (audio.currentTime + GD.off / 1000);
-  GD.ea = force || GD.ea === undefined ? raw : GD.ea * 0.75 + raw * 0.25;   // the graph hands out currentTime in coarse steps; average it
-  const e = GD.ea;
-  if (force || Math.abs(raw) > 0.25) { GD.ea = undefined; try { GD.el.currentTime = Math.max(0, audio.currentTime + GD.off / 1000 + 0.03 * base); } catch (er) {} GD.el.playbackRate = base; return; }
-  GD.el.playbackRate = Math.abs(e) < 0.012 ? base : base * (1 - Math.max(-0.12, Math.min(0.12, Math.abs(e) > 0.08 ? e / 0.35 : e / 0.9)));
+  if (!GD.live || !GD.buf || !VC.ctx) return;
+  const c = VC.ctx, rate = audio.playbackRate || 1, target = audio.currentTime + GD.off / 1000;
+  if (audio.paused) { gdStopSrc(); GD.ea = undefined; return; }
+  if (target > GD.buf.duration) { gdStopSrc(); return; }
+  if (GD.sn && !force) {
+    const raw = GD.p0 + (c.currentTime - GD.c0) * GD.rate - target; GD.ea = GD.ea === undefined ? raw : GD.ea * 0.8 + raw * 0.2;
+    if (Math.abs(GD.ea) < 0.09 && Math.abs(raw) < 0.25 && rate === GD.rate) return;
+  }
+  gdStopSrc(); GD.ea = undefined;
+  const lead = 0.06, pos = target + lead * rate, n = c.createBufferSource(); n.buffer = GD.buf; n.playbackRate.value = rate; n.connect(GD.gain);
+  let when = c.currentTime + lead, off = pos; if (pos < 0) { when += -pos / rate; off = 0; }
+  n.onended = () => { if (GD.sn === n) GD.sn = null; };
+  n.start(when, off); GD.sn = n; GD.c0 = when; GD.p0 = off; GD.rate = rate;
 }
-function guideKill() { GD.live = false; guideOff(); try { GD.el.pause(); } catch (e) {} }
+function guideKill() { GD.live = false; guideOff(); gdStopSrc(); }
 function guideOff() {
   GD.on = false; try { if (GD.gain) GD.gain.gain.value = 0; } catch (e) {}
   const b = $('#kaGuide'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = 'お手本ボーカルを流す：オフ'; }
 }
 async function guideOn() {
   const t = curTrack(); if (!t) return;
-  if (GD.live && GD.key === trackKey(t) && GD.gain) { GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true; const b0 = $('#kaGuide'); b0.setAttribute('aria-pressed', 'true'); b0.textContent = 'お手本ボーカルを流す：オン'; guideSync(true); return; }
-  const row = await kdGet('vocal', trackKey(t)).catch(() => null); if (!row) { kaMsg('先に「お手本を解析」を実行してください。'); return; }
-  const oldG = GD.url;
-  try { await audioGraph(); guideGraph(); } catch (e) { kaMsg('お手本ボーカルを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
-  GD.url = URL.createObjectURL(new Blob([row.data], { type: 'audio/wav' })); GD.el.src = GD.url; if (oldG) URL.revokeObjectURL(oldG); GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true; GD.live = true; GD.key = trackKey(t);
-  const b = $('#kaGuide'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'お手本ボーカルを流す：オン';
-  try { await GD.el.play(); } catch (e) { kaMsg('お手本ボーカルを再生できませんでした。'); }
-  if (audio.paused) GD.el.pause(); guideSync(true);
+  const mark = () => { const b = $('#kaGuide'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'お手本ボーカルを流す：オン'; };
+  if (GD.live && GD.key === trackKey(t) && GD.gain && GD.buf) { GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true; mark(); guideSync(true); return; }
+  const row = await kdGet('vocal', trackKey(t)).catch(() => null); if (!row) { kaMsg('先に「お手本を解析」または「ボーカル音声ファイルを取り込む」を実行してください。'); return; }
+  let buf;
+  try {
+    await audioGraph(); guideGraph(); const c = VC.ctx, ab = row.data.buffer.slice(row.data.byteOffset, row.data.byteOffset + row.data.byteLength);
+    buf = await new Promise((res, rej) => { const r = c.decodeAudioData(ab, res, rej); if (r && r.then) r.then(res, rej); });
+  } catch (e) { kaMsg('お手本ボーカルを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); return; }
+  gdStopSrc(); GD.buf = buf; GD.gain.gain.value = $('#kaGuideVol').value / 100; GD.on = true; GD.live = true; GD.key = trackKey(t); mark();
+  guideSync(true);
 }
-['play', 'pause', 'seeked', 'ratechange'].forEach(ev => audio.addEventListener(ev, () => guideSync(ev === 'seeked')));
+['play', 'pause', 'seeked', 'ratechange'].forEach(ev => audio.addEventListener(ev, () => guideSync(ev === 'seeked' || ev === 'ratechange')));
 $('#kaGuide').addEventListener('click', () => GD.on ? guideOff() : guideOn());
 $('#kaGuideVol').addEventListener('input', e => { if (GD.gain) GD.gain.gain.value = e.target.value / 100; });
 $('#kaGuideOff').value = GD.off; $('#kaGuideOT').textContent = GD.off;
@@ -2957,14 +2966,15 @@ async function kaLoadRef() {
 async function kaAnalyze(reExtract) {
   if (KA.analyzing) { KA.anTok++; KA.analyzing = false; $('#kaRefBtn').textContent = KA.ref ? 'お手本を解析し直す' : 'お手本を解析（ボーカル抽出＋音程）'; $('#kaRefSt').textContent = '解析を中止しました。'; opClear(); return; }
   const t = curTrack(); if (!t) return;
-  const my = ++KA.anTok, id = t.id, key = trackKey(t); KA.analyzing = true; kaMsg('');
+  const my = ++KA.anTok, id = t.id, key = trackKey(t); KA.analyzing = true; kaMsg(''); guideKill();
   { const sv = $('#kaRefSens').value; KA.cfg = sv === 'strict' ? { clar: 0.8, dthr: 0.2 } : sv === 'high' ? { clar: 0.4, dthr: 0.4 } : { clar: 0.5, dthr: 0.35 }; }
   const gamma = { weak: 1, mid: 2, strong: 4 }[$('#kaVocStr').value] || 2;
   $('#kaRefBtn').textContent = '解析を中止'; $('#kaRefSt').textContent = '音声を読み込み中…'; opMark('お手本の解析');
   const alive = () => KA.anTok === my && KA.open;
   try {
     let x = null, stored = null, fresh = false;
-    if (reExtract !== true) { const vr = await kdGet('vocal', key); if (vr) { stored = vr.data; x = wavToF32(stored); } }
+    if (KA.importX) { x = KA.importX; KA.importX = null; fresh = true; }
+    else if (reExtract !== true) { const vr = await kdGet('vocal', key); if (vr) { stored = vr.data; x = wavToF32(stored); } }
     if (!x) {
       opMark('お手本の解析（音声の読み込み）');
       const row = await getAudioBytes(id); if (!row) throw new Error('音声データなし');
@@ -3087,9 +3097,9 @@ async function audioGraph() {
 }
 // the guide vocal goes through the same context: pitch shift + a real gain node (iOS ignores element.volume)
 function guideGraph() {
-  if (GD.src) return; const c = VC.ctx;
-  GD.src = c.createMediaElementSource(GD.el); GD.gain = c.createGain(); GD.ps = new AudioWorkletNode(c, 'otobako-ps', { outputChannelCount: [2] });
-  GD.src.connect(GD.gain); GD.gain.connect(GD.ps); GD.ps.connect(c.destination); keyApply();
+  if (GD.gain) return; const c = VC.ctx;
+  GD.gain = c.createGain(); GD.ps = new AudioWorkletNode(c, 'otobako-ps', { outputChannelCount: [2] });
+  GD.gain.connect(GD.ps); GD.ps.connect(c.destination); keyApply();
 }
 function keyApply() {
   const s = KA.key; $('#kaKeyV').textContent = s === 0 ? '±0' : (s > 0 ? '+' : '−') + Math.abs(s);
@@ -3340,7 +3350,7 @@ function toneTick() {
   if (audio.paused) { TN.g.gain.setTargetAtTime(0, now, 0.03); return; }
   const t = (audio.currentTime || 0) + TN.off / 1000 + 0.03, s = toneAt(t);
   if (s) {
-    const f = 440 * Math.pow(2, (s.m + KA.shift + KA.key - 69) / 12);
+    const f = 440 * Math.pow(2, (s.m + KA.shift + KA.key - 69) / 12) * Math.pow(2, toneOct());
     TN.osc.frequency.setTargetAtTime(f, now, TN.last === s ? 0.02 : (TN.mode === 'fine' ? 0.008 : 0.03)); TN.g.gain.setTargetAtTime(1, now, 0.015); TN.last = s;
   } else { TN.g.gain.setTargetAtTime(0, now, 0.025); TN.last = null; }
 }
@@ -3350,7 +3360,7 @@ async function toneOn() {
   const c = VC.ctx;
   if (!TN.osc) {
     TN.osc = c.createOscillator(); TN.osc.type = 'triangle'; TN.osc.frequency.value = 440;
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; TN.g = c.createGain(); TN.g.gain.value = 0; TN.vg = c.createGain();
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4500; TN.g = c.createGain(); TN.g.gain.value = 0; TN.vg = c.createGain();
     TN.osc.connect(lp); lp.connect(TN.g); TN.g.connect(TN.vg); TN.vg.connect(c.destination); TN.osc.start();
   }
   TN.vg.gain.value = $('#kaToneVol').value / 100 * 0.5; TN.on = true; TN.last = null;
@@ -3572,7 +3582,7 @@ const FLAT_MAJ = new Set([5, 10, 3, 8, 1]);
 const chUseFlats = k => k && FLAT_MAJ.has(k.minor ? (k.tonic + 3) % 12 : k.tonic);
 /* kaldi: audio -> mono 16 kHz (chunked decode, like the karaoke analysis) */
 async function chLoadMono(id, t, alive, onProg) {
-  const bytes = await getAudioBytes(id); if (!bytes) throw new Error('音声データなし');
+  const bytes = id instanceof Uint8Array ? id : await getAudioBytes(id); if (!bytes) throw new Error('音声データなし');
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext, oc = new OAC(2, REF_SR, REF_SR);
   const dec = ab => new Promise((res, rej) => { const p = oc.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); });
   let x = new Float32Array(Math.ceil(((t.duration || 300) + 5) * REF_SR)), pos = 0, bad = 0;
@@ -3681,8 +3691,11 @@ function chDia(i) {
 }
 function chSegAt(t) { const s = CH.segs; let a = 0, b = s.length; while (a < b) { const m = (a + b) >> 1; if (s[m].t1 <= t) a = m + 1; else b = m; } return a < s.length && s[a].t0 <= t + 1e-6 ? a : -1; }
 function chTick(force) {
-  const t = audio.currentTime || 0, dur = audio.duration || 0; $('#chT0').textContent = fmtT(t); $('#chT1').textContent = fmtT(dur); if (document.activeElement !== $('#chSeek') && dur) $('#chSeek').value = Math.round(t / dur * 1000);
-  $('#chPlay').textContent = audio.paused ? '▶' : '❚❚';
+  const t = audio.currentTime || 0, dur = audio.duration || 0;
+  // only touch the DOM when something changed: rewriting a button's text every frame swallows clicks in Safari
+  const set = (id, v) => { const e = $(id); if (e.textContent !== v) e.textContent = v; };
+  set('#chT0', fmtT(t)); set('#chT1', fmtT(dur)); if (document.activeElement !== $('#chSeek') && dur) { const v = String(Math.round(t / dur * 1000)); if ($('#chSeek').value !== v) $('#chSeek').value = v; }
+  set('#chPlay', audio.paused ? '▶' : '❚❚');
   if (!CH.segs.length) return; const i = chSegAt(t); if (i !== CH.idx) { CH.idx = i; chDia(i); }
   let first = null; for (const s of CH.slots) { const on = t >= s.t0 && t < s.t1; if (on !== s.on) { s.on = on; s.el.classList.toggle('on', on); } if (on && !first) first = s.el; }
   if (first && (first !== CH.lastEl || force)) {
@@ -3708,6 +3721,31 @@ function chClose() { CH.open = false; CH.tok++; if (CH.busy) { CH.busy = false; 
   window.__ch = CH; CH.decode = chDecode; CH.chroma = chChroma; CH.shape = chShape;
 }
 
+/* ---------- reference vocal import / tone register ---------- */
+TN.reg = 'k1'; try { if (localStorage.getItem('otobako-tone-reg') === 'orig') TN.reg = 'orig'; } catch (e) {}
+function toneOct() {
+  if (TN.reg === 'orig') return 0;
+  const segs = toneSegs(), key = KA.shift + '|' + KA.key; if (TN.octKey === key && TN.octSrc === segs) return TN.oct;
+  const ms = segs.map(s => s.m).sort((a, b) => a - b); let o = 0;
+  if (ms.length) { const f = 440 * Math.pow(2, (ms[ms.length >> 1] + KA.shift + KA.key - 69) / 12); o = Math.max(0, Math.min(5, Math.round(Math.log2(1000 / f)))); }
+  TN.octKey = key; TN.octSrc = segs; TN.oct = o; return o;
+}
+$('#kaToneReg').value = TN.reg;
+$('#kaToneReg').addEventListener('change', e => { TN.reg = e.target.value; TN.octKey = null; try { localStorage.setItem('otobako-tone-reg', TN.reg); } catch (er) {} TN.last = null; });
+async function kaImportVocal(file) {
+  const t = curTrack(); if (!t) { kaMsg('曲を選んでください。'); return; }
+  if (KA.analyzing) { kaMsg('解析中です。終わってから取り込んでください。'); return; }
+  kaMsg(''); $('#kaRefSt').textContent = '音声ファイルを読み込み中…';
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const x = await chLoadMono(bytes, { duration: 300 }, () => KA.open, p => { $('#kaRefSt').textContent = '音声を読み込み中 ' + Math.round(p * 100) + '%'; });
+    if (!x || x.length < REF_SR) throw new Error('音声が短すぎるか、読み込めませんでした');
+    KA.importX = x; await kaAnalyze(false);
+  } catch (e) { KA.importX = null; $('#kaRefSt').textContent = ''; kaMsg('ボーカル音声を取り込めませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。wav / mp3 / m4a などの音声ファイルを選んでください。'); }
+}
+$('#kaImpVocal').addEventListener('click', () => { if (!curTrack()) { kaMsg('曲を選んでください。'); return; } $('#kaVocIn').value = ''; $('#kaVocIn').click(); });
+$('#kaVocIn').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) kaImportVocal(f); });
+
 (async function boot() {
   hydrateIcons(); setPlayIcon(); updateModes(); document.body.classList.add('paused');
   let v = 80; try { const s = localStorage.getItem('otobako-vol'); if (s !== null) v = Math.max(0, Math.min(100, +s || 0)); } catch (e) {}
@@ -3727,4 +3765,5 @@ function chClose() { CH.open = false; CH.tok++; if (CH.busy) { CH.busy = false; 
 })();
 </script>
 <script>if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) { window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {})); }</script>
+
 </body></html>
