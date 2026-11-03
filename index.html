@@ -2629,7 +2629,10 @@ async function kaMicOn() {
   kaMsg(''); let shared = null; try { await audioGraph(); shared = VC.ctx; } catch (e) {}
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { kaMsg('この環境ではマイクを使えません。HTTPSで開いたSafari/Chromeか、ホーム画面に追加したアプリで開いてください。'); return; }
   try {
-    KA.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+    if (KA.keep && KA.keep.active && KA.keep.getTracks().some(t => t.readyState === 'live')) KA.stream = KA.keep;
+    else KA.stream = KA.keep = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+    KA.stream.getTracks().forEach(t => { t.enabled = true; });
+    try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) {}
   } catch (e) {
     kaMsg(e && e.name === 'NotAllowedError' ? 'マイクが許可されていません。iPhoneは、画面左上の「ぁあ」またはSafariの設定でマイクを許可してください（ホーム画面のアプリは、再度開くと許可を求められます）。' : e && e.name === 'NotFoundError' ? 'マイクが見つかりません。' : 'マイクを開始できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。');
     return;
@@ -2640,14 +2643,14 @@ async function kaMicOn() {
     KA.buf = new Float32Array(KA.an.fftSize); KA.src.connect(KA.an);
     KA.mon = KA.ctx.createGain(); KA.mon.gain.value = 1; KA.src.connect(KA.mon);
     if ($('#kaMon').checked) KA.mon.connect(KA.ctx.destination);
-  } catch (e) { kaMicOff(); kaMsg('音声の解析を開始できませんでした。'); return; }
+  } catch (e) { kaMicOff(true); kaMsg('音声の解析を開始できませんでした。'); return; }
   $('#kaMic').classList.add('on'); $('#kaMicTx').textContent = 'マイクをオフ';
   audioRecover(!audio.paused);
 }
-function kaMicOff() {
+function kaMicOff(full) {
   const wasPlaying = !audio.paused;
   try { recStop(true); } catch (e) {}
-  try { if (KA.stream) KA.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { if (KA.stream) KA.stream.getTracks().forEach(t => { if (full) t.stop(); else t.enabled = false; }); if (full) KA.keep = null; } catch (e) {}
   try { if (KA.ctx && KA.ctx !== VC.ctx) KA.ctx.close(); else if (KA.src) { KA.src.disconnect(); if (KA.mon) KA.mon.disconnect(); } } catch (e) {}
   KA.stream = KA.ctx = KA.an = KA.src = KA.mon = null; KA.last = null; KA.med = [];
   $('#kaMic').classList.remove('on'); $('#kaMicTx').textContent = 'マイクをオン'; $('#kaLv').style.width = '0'; kaRead(null);
@@ -2671,7 +2674,7 @@ function kaOpen() {
   hydrateIcons($('#ka')); kaBuild(); kaLoadRef(); kaRead(null); kdStat(); kdMigrate().then(() => kaLoadRef());
   cancelAnimationFrame(KA.raf); KA.raf = requestAnimationFrame(kaLoop);
 }
-function kaClose() { toneOff(); guideKill(); recKill(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(); }
+function kaClose() { toneOff(); guideKill(); recKill(); KA.open = false; KA.anTok++; KA.analyzing = false; opClear(); cancelAnimationFrame(KA.raf); $('#ka').hidden = true; kaMicOff(true); }
 /* reference melody: estimate the lead line from the centre of the stereo image (low accuracy by design) */
 const REF_SR = 16000, REF_HOP = 400, REF_W = 512, REF_TAU_MAX = 200, REF_TAU_MIN = 14;
 function bqCoef(type, f, sr, Q) {
@@ -3151,7 +3154,7 @@ $('#kaClear').addEventListener('click', () => { KA.hist = []; KA.minM = KA.maxM 
 $('#kaMon').addEventListener('change', e => { if (!KA.mon || !KA.ctx) return; try { if (e.target.checked) KA.mon.connect(KA.ctx.destination); else KA.mon.disconnect(KA.ctx.destination); } catch (er) {} });
 audio.addEventListener('seeked', () => { if (KA.open && !KA.seekKeep) KA.hist = []; });
 document.addEventListener('keydown', e => { if (KA.open && e.key === 'Escape') kaClose(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && KA.open) kaMicOff(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && KA.open) kaMicOff(true); });
 
 /* ---------- recording ---------- */
 const RC = { p: null, el: new Audio(), url: null, on: false, cur: null, list: [], r: null, asked: false };
