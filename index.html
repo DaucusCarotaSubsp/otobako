@@ -1125,6 +1125,7 @@ async function saveDb(auto) {
   D.saving = true; updateDbUi();
   const ver = D.ver; let saved = false;
   try {
+    if (D.lean && !auto) { await exportFull(); return; }
     if (!fileHandle && !auto && window.showSaveFilePicker) {
       try { fileHandle = await showSaveFilePicker({ suggestedName: D.name, types: [{ description: 'SQLite データベース', accept: { 'application/vnd.sqlite3': ['.sqlite', '.sqlite3', '.db'] } }] }); D.name = fileHandle.name; }
       catch (e) { if (e && e.name === 'AbortError') return; fileHandle = null; }
@@ -1140,6 +1141,51 @@ async function saveDb(auto) {
   } catch (e) { opClear(); toast('保存できませんでした（' + (e && (e.name || e.message) || '不明') + '）。', 6000); }
   finally { D.saving = false; updateDbUi(); }
 }
+async function exportFull() {
+  const rows = q('SELECT id, size FROM tracks ORDER BY id');
+  if (!rows.length) { toast('書き出す曲がありません。'); return; }
+  const mobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const LIMIT = (window.__exLimitMB || (mobile ? 200 : 600)) * 1048576, parts = []; let cur = [], sz = 0;
+  for (const r of rows) { if (cur.length && sz + r.size > LIMIT) { parts.push(cur); cur = []; sz = 0; } cur.push(r.id); sz += r.size; }
+  if (cur.length) parts.push(cur);
+  const total = rows.reduce((a, b) => a + b.size, 0), mb = x => Math.round(x / 1048576);
+  if (parts.length > 1 && !confirm(`音声が合計${mb(total)} MBあり、1つのファイルにはメモリの都合で収まりません。\n${parts.length}個のファイル（各約${mb(LIMIT)} MB以下）に分けて書き出します。続けますか？\n（それぞれが、その曲たちを含む完全なライブラリとして開けます）`)) return;
+  const base = D.name.replace(/\.(sqlite3?|db)$/i, ''), tick = () => new Promise(r => setTimeout(r, 0));
+  IMP.abort = false; IMP.finished = false; $('#impCancel').textContent = '中止'; opMark('音声つきの書き出し'); let done = 0, doneB = 0, missing = 0;
+  try {
+    for (let pi = 0; pi < parts.length; pi++) {
+      const ids = parts[pi], inl = ids.join(','), nd = new SQL.Database();
+      try {
+        nd.run(SCHEMA);
+        const cp = (table, sql) => { const l = q(sql); if (!l.length) return; const cols = Object.keys(l[0]), st = nd.prepare(`INSERT OR REPLACE INTO ${table}(${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`); try { nd.run('BEGIN'); for (const r of l) st.run(cols.map(c => r[c])); nd.run('COMMIT'); } finally { st.free(); } };
+        cp('meta', "SELECT key, value FROM meta WHERE key NOT IN ('audio_store', 'libid')");
+        cp('covers', `SELECT * FROM covers WHERE id IN (SELECT cover_id FROM tracks WHERE id IN (${inl}))`);
+        cp('tracks', `SELECT * FROM tracks WHERE id IN (${inl})`);
+        cp('playlists', 'SELECT * FROM playlists');
+        cp('playlist_tracks', `SELECT * FROM playlist_tracks WHERE track_id IN (${inl})`);
+        const ins = nd.prepare('INSERT OR REPLACE INTO audio(track_id, data) VALUES (?, ?)');
+        try {
+          for (const id of ids) {
+            if (IMP.abort) throw new Error('中止しました');
+            const t = byId(id); impShow('音声を含めて書き出し中' + (parts.length > 1 ? `（${pi + 1}/${parts.length}個目）` : ''), 100 * doneB / Math.max(1, total), `${done}/${rows.length}曲（${mb(doneB)} / ${mb(total)} MB）\n${t ? t.title : ''}`);
+            const b = await getAudioBytes(id); if (b) ins.run([id, b]); else missing++;
+            done++; doneB += (rows.find(r => r.id === id) || {}).size || 0; await tick();
+          }
+        } finally { ins.free(); }
+        impShow('ファイルを作成中', 100 * doneB / Math.max(1, total), `${pi + 1}/${parts.length}個目`); await tick();
+        const out = nd.export(); nd.close();
+        download(new Blob([out], { type: 'application/vnd.sqlite3' }), parts.length > 1 ? `${base}-${pi + 1}of${parts.length}.sqlite` : base + '.sqlite');
+      } catch (e) { try { nd.close(); } catch (e2) {} throw e; }
+      if (pi < parts.length - 1) await new Promise(r => setTimeout(r, 1500));
+    }
+    $('#imp').hidden = true; opClear();
+    toast(`音声を含めて書き出しました（${rows.length - missing}曲・${mb(doneB)} MB${parts.length > 1 ? '・' + parts.length + 'ファイル' : ''}）` + (missing ? `。${missing}曲は音声が見つからず含まれていません` : ''), 7000);
+  } catch (e) {
+    $('#imp').hidden = true; opClear();
+    toast(IMP.abort ? '書き出しを中止しました。' : '書き出せませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。曲数が多いとメモリ不足になります。', 7000);
+  }
+}
+window.__exp = { exportFull, get D() { return D; }, auPut: (...a) => auPut(...a), run: (...a) => run(...a), q: (...a) => q(...a) };
 function markDirty() {
   D.dirty = true; D.ver++; updateDbUi(); scheduleCopy();
   if (fileHandle) { clearTimeout(D.timer); D.timer = setTimeout(() => saveDb(true), 2500); }
