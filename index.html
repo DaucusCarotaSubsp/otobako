@@ -57,6 +57,8 @@ h1,h2,h3,p{margin:0}
 /* buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--raise);font-weight:500;white-space:nowrap}
 .btn:hover{background:var(--hover)}
+.btn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+@media (hover:hover){.btn.on:hover{background:var(--accent);filter:brightness(1.06)}}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
 .btn.primary:hover{filter:brightness(1.06)}
 .btn.ghost{background:transparent}
@@ -1606,7 +1608,7 @@ function toggleShuffle() {
 }
 function cycleRepeat() { S.repeat = S.repeat === 'off' ? 'all' : S.repeat === 'all' ? 'one' : 'off'; updateModes(); }
 function updateModes() {
-  $$('[data-act="shuffle"]').forEach(b => { b.classList.toggle('on', S.shuffle); b.setAttribute('aria-pressed', S.shuffle ? 'true' : 'false'); b.setAttribute('aria-label', 'シャッフル：' + (S.shuffle ? 'オン' : 'オフ')); b.title = 'シャッフル：' + (S.shuffle ? 'オン' : 'オフ'); });
+  $$('[data-act="shuffle"]').forEach(b => { b.classList.toggle('on', S.shuffle); b.setAttribute('aria-pressed', S.shuffle ? 'true' : 'false'); $$('[data-shufbtn]').forEach(x => { x.classList.toggle('on', S.shuffle); x.setAttribute('aria-pressed', S.shuffle ? 'true' : 'false'); }); b.setAttribute('aria-label', 'シャッフル：' + (S.shuffle ? 'オン' : 'オフ')); b.title = 'シャッフル：' + (S.shuffle ? 'オン' : 'オフ'); });
   $$('[data-act="repeat"]').forEach(b => {
     b.classList.toggle('on', S.repeat !== 'off'); b.replaceChildren(icon(S.repeat === 'one' ? 'repeat1' : 'repeat'));
     b.setAttribute('aria-label', 'リピート：' + (S.repeat === 'off' ? 'オフ' : S.repeat === 'all' ? '全曲' : '1曲'));
@@ -1811,7 +1813,7 @@ function renderDetail(main) {
     h('div', { class: 'tx' }, h('h1', { text: title }), h('p', { text: sub }), h('p', { class: 'hint', text: `${all.length}曲 · ${Math.round(totalDur(all) / 60)}分` }),
       h('div', { class: 'acts' },
         h('button', { class: 'btn primary', type: 'button', onclick: () => { if (l.length) playFrom(l.map(t => t.id), l[0].id); } }, icon('play', 16), '再生'),
-        h('button', { class: 'btn', type: 'button', onclick: () => { if (!l.length) return; S.shuffle = true; updateModes(); const r = l[Math.floor(Math.random() * l.length)]; playFrom(l.map(t => t.id), r.id); } }, icon('shuffle', 16), 'シャッフル'))));
+        h('button', { class: 'btn' + (S.shuffle ? ' on' : ''), 'data-shufbtn': '1', type: 'button', 'aria-pressed': S.shuffle ? 'true' : 'false', onclick: () => { if (S.shuffle) { toggleShuffle(); return; } if (!l.length) return; S.shuffle = true; updateModes(); toast('シャッフル：オン', 1200); const r = l[Math.floor(Math.random() * l.length)]; playFrom(l.map(t => t.id), r.id); } }, icon('shuffle', 16), 'シャッフル'))));
   main.append(h('button', { class: 'back', type: 'button', onclick: () => { S.detail = null; render(); } }, icon('back', 18), S.view === 'albums' ? 'アルバム' : 'アーティスト'), head, l.length ? trackList(l, isAlbum) : noMatch());
 }
 function openDetail(type, key) { S.detail = { type, key }; setNp(false); render(); }
@@ -1948,7 +1950,7 @@ function renderPlaylist(main) {
     h('div', { class: 'tx' }, input || h('h1', { text: pl.name }), h('p', { class: 'hint', text: `プレイリスト · ${list.length}曲 · ${Math.round(totalDur(list) / 60)}分` }),
       h('div', { class: 'acts' },
         h('button', { class: 'btn primary', type: 'button', onclick: () => { if (ids.length) playFrom(ids, ids[0], pl.id); } }, icon('play', 16), '再生'),
-        h('button', { class: 'btn', type: 'button', onclick: () => { if (!ids.length) return; S.shuffle = true; updateModes(); playFrom(ids, ids[Math.floor(Math.random() * ids.length)], pl.id); } }, icon('shuffle', 16), 'シャッフル'),
+        h('button', { class: 'btn' + (S.shuffle ? ' on' : ''), 'data-shufbtn': '1', type: 'button', 'aria-pressed': S.shuffle ? 'true' : 'false', onclick: () => { if (S.shuffle) { toggleShuffle(); return; } if (!ids.length) return; S.shuffle = true; updateModes(); toast('シャッフル：オン', 1200); playFrom(ids, ids[Math.floor(Math.random() * ids.length)], pl.id); } }, icon('shuffle', 16), 'シャッフル'),
         h('button', { class: 'btn', type: 'button', onclick: () => { S.plRename = true; render(true); } }, icon('edit', 16), '名前を変更'),
         del)));
   main.append(head);
