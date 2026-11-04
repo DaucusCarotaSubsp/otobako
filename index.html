@@ -203,6 +203,19 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .ka-btns #kaRec{grid-column:1/-1;min-height:52px;font-size:16px}
 .ka-recrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.ka-recrow:empty{display:none}
 .ka-recrow select{flex:1;min-width:0;min-height:38px}
+.ka-who{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ka-who select{min-height:38px;max-width:100%}
+.ka-in{flex:1;min-width:120px;min-height:38px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--fg);font-size:16px}
+.ka-res{margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(127,127,127,.07)}
+.ka-res .big{display:flex;align-items:baseline;gap:8px}.ka-res .big b{font-size:52px;line-height:1;color:var(--accent);font-variant-numeric:tabular-nums}.ka-res .big span{font-size:14px;font-weight:700}
+.ka-res .sbar{display:grid;grid-template-columns:74px 1fr 34px;gap:8px;align-items:center;margin-top:8px;font-size:13px}
+.ka-res .sbar i{display:block;height:8px;border-radius:4px;background:rgba(127,127,127,.25);overflow:hidden}.ka-res .sbar i u{display:block;height:100%;background:var(--accent)}
+.ka-res canvas{width:100%;height:26px;margin-top:10px;border-radius:6px;display:block}
+.ka-res p{margin:8px 0 0;font-size:13px;line-height:1.55}
+.ka-rank{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px}
+.ka-rank li{display:grid;grid-template-columns:34px 1fr auto auto;gap:8px;align-items:center;padding:7px 8px;border-radius:10px;font-size:14px;background:rgba(127,127,127,.06)}
+.ka-rank li.me{background:var(--accent-soft,rgba(255,106,82,.16));outline:1px solid var(--accent)}
+.ka-rank li small{display:block;color:var(--dim);font-size:11px}.ka-rank li b{font-variant-numeric:tabular-nums;font-size:16px}
+.ka-rank li button{width:30px;height:30px;border-radius:50%;color:var(--dim)}
 .ka-sl{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px;margin-top:8px}
 .ka-sl label{display:grid;gap:2px;font-size:12px;color:var(--dim)}
 .ka-sl input[type=range]{width:100%;accent-color:var(--accent)}
@@ -549,6 +562,16 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
           <label id="kaToneS" hidden>メロディ音の音量<input type="range" id="kaToneVol" min="0" max="100" value="45"></label>
           <label id="kaGuideS" hidden>お手本の音量<input type="range" id="kaGuideVol" min="0" max="100" value="80"></label>
           <label id="kaRecVS" hidden>録音の音量<input type="range" id="kaRecVol" min="0" max="200" value="100"></label>
+        </div>
+        <div class="ka-score" id="kaScoreBox">
+          <h4 class="ka-h">採点・ランキング</h4>
+          <div class="ka-who"><label>歌う人 <select id="kaWho" class="btn sm" aria-label="歌う人"></select></label><input id="kaWhoNew" class="ka-in" type="text" maxlength="20" placeholder="新しい名前" autocomplete="off"><button class="btn sm" type="button" id="kaWhoAdd">名前を登録</button><button class="btn sm ghost" type="button" id="kaWhoDel" hidden>この名前を削除</button></div>
+          <div class="ka-btns"><button class="btn sm" type="button" id="kaScoreBtn" hidden>選んだ録音を採点する</button></div>
+          <p class="ka-note" id="kaScoreSt">お手本を解析してから歌を録音すると、録音を止めたときに自動で採点します（お手本の音程・タイミングとのずれを見ます）。</p>
+          <div class="ka-res" id="kaScoreRes" hidden></div>
+          <h4 class="ka-h">この曲のランキング</h4>
+          <label class="ck"><input type="checkbox" id="kaRankAll">同じ名前の記録もすべて表示（ふだんは1人1件・最高点）</label>
+          <ol class="ka-rank" id="kaRank"></ol>
         </div>
         <p class="ka-note" id="kaPrepHint">音程バーのお手本やガイド音を使うには、下の「最初に設定する」でお手本を解析してください。</p>
       </section>
@@ -3168,8 +3191,8 @@ window.__rc = RC; RC.el.preload = 'auto'; RC.api = () => ({ recInfos, recTx });
 RC.off = 0; try { RC.off = +localStorage.getItem('otobako-rec-off') || 0; } catch (e) {}
 function recOpenDb() {
   return RC.p || (RC.p = new Promise((res, rej) => {
-    const r = indexedDB.open('otobako-rec', 1);
-    r.onupgradeneeded = () => { for (const s of ['info', 'wav']) r.result.createObjectStore(s); };
+    const r = indexedDB.open('otobako-rec', 2);
+    r.onupgradeneeded = () => { for (const s of ['info', 'wav', 'scores', 'people']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
     r.onsuccess = () => res(r.result); r.onerror = () => { RC.p = null; rej(r.error); };
   }));
 }
@@ -3191,9 +3214,10 @@ const recSt = m => { $('#kaRecSt').textContent = m || ''; };
 async function recList(sel) {
   const t = curTrack(), box = $('#kaRecSel'); let l = [];
   try { const all = await recInfos(); l = t ? all.filter(x => x.tk === trackKey(t)).sort((a, b) => b.when - a.when) : []; const sum = all.reduce((a, b) => a + (b.size || 0), 0); $('#kaRecHint').dataset.stat = `録音用データベース：${all.length}件・${(sum / 1048576).toFixed(1)} MB`; } catch (e) { $('#kaRecHint').dataset.stat = ''; }
+  try { scRankRender(); } catch (e) {}
   RC.list = l; box.replaceChildren(...l.map(x => h('option', { value: x.key, text: `${new Date(x.when).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}　${recFmt(x.dur)}` })));
   if (sel && l.some(x => x.key === sel)) box.value = sel;
-  const has = l.length > 0; for (const id of ['#kaRecSel', '#kaRecPlay', '#kaRecVS', '#kaRecOS', '#kaRecDl', '#kaRecDel']) $(id).hidden = !has;
+  const has = l.length > 0; for (const id of ['#kaRecSel', '#kaRecPlay', '#kaRecVS', '#kaRecOS', '#kaRecDl', '#kaRecDel', '#kaScoreBtn']) $(id).hidden = !has;
   const st = $('#kaRecHint').dataset.stat; $('#kaRecHint').textContent = '録音は、曲の再生位置に合わせて保存されます。「ボーカルを消す」をオンにして歌うと、あとで自分の歌だけを曲に重ねて聴けます。イヤホン推奨です。' + (st ? '　' + st : '');
 }
 async function recStart() {
@@ -3233,8 +3257,8 @@ async function recStop(silent, why) {
   const key = r.tk + '#' + r.begun;
   try {
     if (!RC.asked) { RC.asked = true; try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {} }
-    await recTx(['info', 'wav'], 'readwrite', (i, wv) => { i.put({ tk: r.tk, title: r.title, when: r.begun, dur: n / r.out, t0: r.t0, size: buf.byteLength }, key); wv.put({ data: new Uint8Array(buf) }, key); });
-    toast((why || '録音を保存しました。') + '（' + recFmt(n / r.out) + '）', 5000); await recList(key);
+    await recTx(['info', 'wav'], 'readwrite', (i, wv) => { i.put({ tk: r.tk, title: r.title, when: r.begun, dur: n / r.out, t0: r.t0, size: buf.byteLength, ky: KA.key | 0 }, key); wv.put({ data: new Uint8Array(buf) }, key); });
+    toast((why || '録音を保存しました。') + '（' + recFmt(n / r.out) + '）', 5000); await recList(key); scAuto(key);
   } catch (e) { kaMsg('録音を保存できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。端末の空き容量を確認してください。'); }
 }
 // The recording is played as an AudioBuffer on the same AudioContext as the song (like a mixer track), started on the
@@ -3306,6 +3330,147 @@ $('#kaRecDel').addEventListener('click', async () => {
   try { await recTx(['info', 'wav'], 'readwrite', (i, w) => { i.delete(key); w.delete(key); }); toast('録音を削除しました。'); } catch (e) { kaMsg('削除できませんでした。'); }
   recList();
 });
+
+/* ---------- scoring ---------- */
+const SC = { who: '', people: [], busy: false, lastKey: null };
+try { SC.who = localStorage.getItem('otobako-who') || ''; } catch (e) {}
+window.__sc = SC; SC.tk = () => trackKey(curTrack());
+const SC_HOP = 0.02;
+const scClamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const scCurve = x => Math.round(100 * Math.pow(scClamp(x, 0, 1), 0.85));
+const scFold = d => d - 12 * Math.round(d / 12);
+// pitch track of the recording (YIN at 12 kHz, 20 ms hop). Returns Float32Array of MIDI numbers, NaN where unvoiced.
+async function scPitch(pcm, onProg) {
+  const n2 = pcm.length >> 1, y = new Float32Array(n2); for (let i = 0; i < n2; i++) y[i] = (pcm[2 * i] + pcm[2 * i + 1]) / 65536;
+  const SR = 12000, HOP = Math.round(SR * SC_HOP), W = 384, TMAX = 150, TMIN = 12, nf = Math.max(0, Math.floor((n2 - W - TMAX) / HOP));
+  const rms = new Float32Array(nf); for (let f = 0; f < nf; f++) { let s = 0; const o = f * HOP; for (let j = 0; j < 480 && o + j < n2; j++) s += y[o + j] * y[o + j]; rms[f] = Math.sqrt(s / 480); }
+  const sr = [...rms].sort((a, b) => a - b), thr = Math.max(0.006, 0.08 * (sr[Math.floor(sr.length * 0.9)] || 0));
+  const out = new Float32Array(nf).fill(NaN), d = new Float32Array(TMAX + 2);
+  for (let f = 0; f < nf; f++) {
+    if ((f & 255) === 255) { if (onProg) onProg(f / nf); await new Promise(r => setTimeout(r, 0)); }
+    if (rms[f] < thr) continue;
+    const o = f * HOP; let run = 0; d[0] = 1;
+    for (let tau = 1; tau <= TMAX; tau++) { let s = 0; for (let j = 0; j < W; j += 2) { const v = y[o + j] - y[o + j + tau]; s += v * v; } run += s; d[tau] = run ? s * tau / run : 1; }
+    for (let tau = TMIN; tau < TMAX; tau++) {
+      if (d[tau] < 0.18) {
+        while (tau + 1 < TMAX && d[tau + 1] < d[tau]) tau++;
+        const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c, tt = den ? tau + (a - c) / (2 * den) : tau, m = 69 + 12 * Math.log2(SR / tt / 440);
+        if (m > 36 && m < 96) out[f] = m; break;
+      }
+    }
+  }
+  const sm = out.slice();   // 3-frame median; isolated blips are dropped
+  for (let f = 1; f < nf - 1; f++) { const a = out[f - 1], b = out[f], c = out[f + 1]; if (isNaN(b)) continue; if (isNaN(a) && isNaN(c)) { sm[f] = NaN; continue; } if (!isNaN(a) && !isNaN(c)) { const t = [a, b, c].sort((p, q) => p - q); sm[f] = t[1]; } }
+  return sm;
+}
+// compare the singer's pitch track with the reference notes. rec0 = song position at which the recording started (s)
+function scCompare(S, rec0, key, notes) {
+  const H = SC_HOP, tEnd = notes[notes.length - 1].t1, N = Math.ceil(tEnd / H) + 2, R = new Float32Array(N).fill(NaN);
+  for (const n of notes) for (let j = Math.ceil(n.t0 / H); j <= Math.floor(n.t1 / H) && j < N; j++) R[j] = n.m + key;
+  const off0 = rec0 / H, sAt = (j, lag) => { const i = Math.round(j - off0 + lag); return i >= 0 && i < S.length ? S[i] : NaN; };
+  // global delay (mic / device latency) = the shift that makes the two pitch tracks agree best
+  let bestLag = 0, bestN = -1; const cnt = [];
+  for (let lag = -20; lag <= 20; lag++) { let c = 0; for (let j = 0; j < N; j++) { const r = R[j]; if (r !== r) continue; const s = sAt(j, lag); if (s === s) c += Math.abs(scFold(s - r)) < 1 ? 3 : 1; } cnt.push(c); if (c > bestN || (c === bestN && Math.abs(lag) < Math.abs(bestLag))) { bestN = c; bestLag = lag; } }
+  if (bestN < 60) bestLag = 0;
+  const V = new Uint8Array(N); for (let j = 0; j < N; j++) { const s = sAt(j, bestLag); V[j] = s === s ? 1 : 0; }
+  // pitch: per reference note, the median deviation of the sung pitch (octaves are folded)
+  let wS = 0, wT = 0, wHit = 0; const per = [], devs = [];
+  for (const n of notes) {
+    const w = n.t1 - n.t0; if (w < 0.1) continue; let j0 = Math.ceil(n.t0 / H), j1 = Math.floor(n.t1 / H); if (j1 - j0 < 3) continue;
+    const trim = j1 - j0 >= 10 ? Math.round((j1 - j0) * 0.15) : 0; j0 += trim; j1 -= trim;
+    const ds = []; let tot = 0; for (let j = j0; j <= j1; j++) { tot++; const s = sAt(j, bestLag); if (s === s) ds.push(scFold(s - (n.m + key))); }
+    wT += w; let s = 0, c = null;
+    if (ds.length / tot >= 0.3) { ds.sort((a, b) => a - b); c = ds[ds.length >> 1] * 100; const a = Math.abs(c); s = a <= 40 ? 1 : a >= 200 ? 0 : 1 - (a - 40) / 160; wHit += w; devs.push(c); }
+    wS += w * s; per.push({ t0: n.t0, t1: n.t1, s });
+  }
+  // timing: where the reference starts a phrase / note after a pause, when does the singer start?
+  const ons = []; for (let j = 5; j < N; j++) if (V[j] && !V[j - 1] && !V[j - 2] && !V[j - 3] && !V[j - 4] && !V[j - 5]) ons.push(j);
+  let tSum = 0, tN = 0; const errs = [];
+  notes.forEach((n, i) => {
+    if (n.t1 - n.t0 < 0.1 || (i > 0 && n.t0 - notes[i - 1].t1 < 0.15)) return;
+    const f0 = n.t0 / H; let bj = null; for (const o of ons) if (Math.abs(o - f0) <= 30 && (bj === null || Math.abs(o - f0) < Math.abs(bj - f0))) bj = o;
+    tN++;
+    if (bj !== null) { const e = (bj - f0) * H, a = Math.abs(e); errs.push(e); tSum += a <= 0.1 ? 1 : a >= 0.4 ? 0 : 1 - (a - 0.1) / 0.3; }
+    else if (V[Math.min(N - 1, Math.round(f0) + 5)]) tSum += 0.4;
+  });
+  const p = wT ? wS / wT : 0, t = tN ? tSum / tN : p, cov = wT ? wHit / wT : 0;
+  errs.sort((a, b) => a - b); devs.sort((a, b) => a - b);
+  return { p, t, cov, total: scCurve(0.6 * p + 0.4 * t), pitch: scCurve(p), timing: scCurve(t), per, lag: bestLag * H,
+    cents: devs.length ? devs.reduce((a, b) => a + Math.abs(b), 0) / devs.length : null, bias: devs.length ? devs[devs.length >> 1] : null,
+    lateMs: errs.length ? Math.round(errs[errs.length >> 1] * 1000) : null, onsets: tN, dur: tEnd };
+}
+const scVerdict = n => n >= 90 ? 'すばらしい！' : n >= 80 ? 'とても上手' : n >= 70 ? '上手です' : n >= 60 ? 'いい感じ' : n >= 45 ? 'もう一歩' : 'これから伸びます';
+const scSt = m => { $('#kaScoreSt').textContent = m || ''; };
+const scName = () => SC.who || 'ゲスト';
+async function scPeopleLoad() {
+  let l = []; try { l = await recTx(['people'], 'readonly', s => s.getAll()) || []; } catch (e) {}
+  SC.people = l.map(x => x.name).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ja'));
+  if (SC.who && !SC.people.includes(SC.who)) SC.who = '';
+  if (!SC.who && SC.people.length) SC.who = SC.people[0];
+  const sel = $('#kaWho'); sel.replaceChildren(...(SC.people.length ? SC.people : ['ゲスト']).map(n => h('option', { value: n, text: n }))); sel.value = scName();
+  $('#kaWhoDel').hidden = !SC.people.length;
+}
+async function scAddPerson() {
+  const el = $('#kaWhoNew'), name = el.value.trim().slice(0, 20); if (!name) { scSt('名前を入力してください。'); return; }
+  try { await recTx(['people'], 'readwrite', s => s.put({ name, added: Date.now() }, name)); } catch (e) { scSt('名前を保存できませんでした。'); return; }
+  SC.who = name; try { localStorage.setItem('otobako-who', name); } catch (e) {} el.value = ''; await scPeopleLoad(); scSt('「' + name + '」を登録しました。'); scRankRender();
+}
+async function scRankRender() {
+  const box = $('#kaRank'), t = curTrack(); if (!box) return;
+  let all = []; try { all = await recTx(['scores'], 'readonly', s => s.getAll()) || []; } catch (e) {}
+  let l = t ? all.filter(x => x.tk === trackKey(t)) : [];
+  if (!$('#kaRankAll').checked) { const best = new Map(); for (const x of l) { const b = best.get(x.name); if (!b || x.total > b.total || (x.total === b.total && x.when < b.when)) best.set(x.name, x); } l = [...best.values()]; }
+  l.sort((a, b) => b.total - a.total || a.when - b.when);
+  const medal = ['🥇', '🥈', '🥉'];
+  box.replaceChildren(...(l.length ? l.slice(0, 10).map((x, i) => {
+    const del = h('button', { type: 'button', 'aria-label': 'この記録を削除', text: '×', onclick: async () => { if (!confirm(x.name + ' の ' + x.total + '点 を削除しますか？')) return; try { await recTx(['scores'], 'readwrite', s => s.delete(x.sk)); } catch (e) {} scRankRender(); } });
+    return h('li', { class: x.sk === SC.lastKey ? 'me' : '' }, h('span', { text: medal[i] || String(i + 1) + '位' }), h('div', {}, h('span', { text: x.name }), h('small', { text: new Date(x.when).toLocaleDateString('ja-JP') + `　音程${x.pitch}・タイミング${x.timing}` })), h('b', { text: x.total + '点' }), del);
+  }) : [h('li', {}, h('span', { text: '' }), h('span', { class: 'ka-note', text: 'この曲の記録はまだありません。' }))]));
+  return l;
+}
+function scShow(r, rankText) {
+  const box = $('#kaScoreRes'); box.hidden = false;
+  const bar = (label, v) => h('div', { class: 'sbar' }, h('span', { text: label }), h('i', {}, h('u', { style: 'width:' + v + '%' })), h('b', { text: String(v) }));
+  const cv = h('canvas', { 'aria-label': '音ごとの採点（緑：合っている／黄：ややずれ／赤：外れ・歌えていない）' });
+  const notes = [];
+  if (r.bias !== null && Math.abs(r.bias) >= 25) notes.push('音程は全体に' + (r.bias > 0 ? '高め' : '低め') + '（約' + Math.round(Math.abs(r.bias)) + 'セント）でした。');
+  if (r.lateMs !== null && Math.abs(r.lateMs) >= 60) notes.push('歌い出しは' + (r.lateMs > 0 ? '遅れ気味' : '走り気味') + '（約' + Math.abs(r.lateMs) + 'ミリ秒）でした。');
+  if (r.cov < 0.6) notes.push('お手本の音のうち、歌えていたのは約' + Math.round(r.cov * 100) + '%です。');
+  if (!notes.length) notes.push(r.total >= 70 ? '音程もタイミングも安定していました。' : '下の帯で、ずれた場所を確認できます。');
+  box.replaceChildren(h('div', { class: 'big' }, h('b', { text: String(r.total) }), h('span', { text: '点　' + scVerdict(r.total) })),
+    bar('音程', r.pitch), bar('タイミング', r.timing), cv, h('p', { class: 'ka-note', text: notes.join('') + (rankText ? '　' + rankText : '') }),
+    h('p', { class: 'ka-note', text: '採点はお手本（推定）との比較です。お手本の解析精度や、マイクの遅れの補正（' + Math.round(r.lag * 1000) + 'ms）に左右されるため、目安としてお楽しみください。' }));
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth || 300; cv.width = Math.round(w * dpr); cv.height = Math.round(26 * dpr);
+  const g = cv.getContext('2d'); g.fillStyle = 'rgba(127,127,127,.18)'; g.fillRect(0, 0, cv.width, cv.height);
+  for (const s of r.per) { g.fillStyle = s.s >= 0.8 ? '#35b36b' : s.s >= 0.4 ? '#e3b53a' : '#d9533f'; g.fillRect(s.t0 / r.dur * cv.width, 0, Math.max(2, (s.t1 - s.t0) / r.dur * cv.width), cv.height); }
+}
+async function scoreRun(key) {
+  if (SC.busy) return; const t = curTrack();
+  if (!t) return; if (!KA.ref || !KA.ref.notes.length) { scSt('先に「最初に設定する」でお手本を解析してください（採点にはお手本の音程が必要です）。'); return; }
+  const info = RC.list.find(x => x.key === key) || (await recInfos()).find(x => x.key === key); if (!info) return;
+  SC.busy = true; scSt('採点中… 0%'); $('#kaScoreBtn').disabled = true;
+  try {
+    const row = await recTx(['wav'], 'readonly', w => w.get(key)); if (!row) throw new Error('録音を読み込めません');
+    const u8 = row.data, pcm = new Int16Array(u8.slice(44).buffer);
+    const S = await scPitch(pcm, p => scSt('採点中… ' + Math.round(p * 100) + '%'));
+    const r = scCompare(S, info.t0 || 0, info.ky || 0, KA.ref.notes), name = scName(), sk = key + '|' + name;
+    await recTx(['scores'], 'readwrite', s => s.put({ sk, key, tk: info.tk, title: info.title, name, when: info.when, scored: Date.now(), total: r.total, pitch: r.pitch, timing: r.timing, cov: Math.round(r.cov * 100), cents: r.cents === null ? null : Math.round(r.cents), lateMs: r.lateMs }, sk));
+    SC.lastKey = sk; const l = await scRankRender();
+    const mine = (l || []).findIndex(x => x.sk === sk), rankText = mine >= 0 ? 'この曲で ' + (mine + 1) + '位／' + l.length + '件' : '';
+    scShow(r, rankText); scSt(name + ' さんの採点：' + r.total + '点'); toast(name + ' さん　' + r.total + '点', 4000);
+    try { $('#kaScoreRes').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+  } catch (e) { scSt('採点できませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。'); }
+  SC.busy = false; $('#kaScoreBtn').disabled = false;
+}
+function scAuto(key) { if (KA.ref && KA.ref.notes.length) scoreRun(key); else scSt('お手本を解析すると、録音を採点できます。'); }
+window.__score = scoreRun;
+$('#kaScoreBtn').addEventListener('click', () => { const k = $('#kaRecSel').value; if (k) scoreRun(k); });
+$('#kaWhoAdd').addEventListener('click', scAddPerson);
+$('#kaWhoNew').addEventListener('keydown', e => { if (e.key === 'Enter') scAddPerson(); });
+$('#kaWho').addEventListener('change', e => { SC.who = e.target.value; try { localStorage.setItem('otobako-who', SC.who); } catch (er) {} });
+$('#kaWhoDel').addEventListener('click', async () => { const n = scName(); if (!confirm('名前「' + n + '」を削除しますか？（これまでの採点記録は残ります）')) return; try { await recTx(['people'], 'readwrite', s => s.delete(n)); } catch (e) {} SC.who = ''; await scPeopleLoad(); });
+$('#kaRankAll').addEventListener('change', scRankRender);
+scPeopleLoad();
 
 /* ---------- guide melody tone ---------- */
 const TN = { on: false, osc: null, g: null, vg: null, timer: 0, off: 0, segs: [], src: null };
