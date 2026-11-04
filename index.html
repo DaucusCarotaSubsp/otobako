@@ -64,9 +64,10 @@ h1,h2,h3,p{margin:0}
 .btn.danger.arm{background:var(--danger);color:var(--bg);border-color:var(--danger)}
 .btn.sm{height:32px;padding:0 11px;font-size:13px}
 .icon-btn{width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:var(--dim)}
-.icon-btn:hover{background:var(--hover);color:var(--fg)}
-.icon-btn.on{color:var(--accent)}
-.icon-btn.on::after{content:"";position:absolute;margin-top:30px;width:4px;height:4px;border-radius:50%;background:var(--accent)}
+@media (hover:hover){.icon-btn:hover{background:var(--hover);color:var(--fg)}}
+.icon-btn.on{color:var(--accent-ink);background:var(--accent)}
+.icon-btn:not(.on){-webkit-tap-highlight-color:transparent}
+@media (hover:hover){.icon-btn.on:hover{background:var(--accent);color:var(--accent-ink);filter:brightness(1.08)}}
 .icon-btn{position:relative}
 
 .search{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border-radius:10px;background:var(--raise);border:1px solid var(--line);color:var(--faint)}
@@ -1599,13 +1600,13 @@ function togglePlay() {
   if (audio.paused) audio.play().catch(() => toast('再生できませんでした。', 3000)); else audio.pause();
 }
 function toggleShuffle() {
-  S.shuffle = !S.shuffle;
+  S.shuffle = !S.shuffle; toast('シャッフル：' + (S.shuffle ? 'オン' : 'オフ'), 1200);
   if (S.cur && S.base.length) buildQueue(S.base, S.cur);
   updateModes();
 }
 function cycleRepeat() { S.repeat = S.repeat === 'off' ? 'all' : S.repeat === 'all' ? 'one' : 'off'; updateModes(); }
 function updateModes() {
-  $$('[data-act="shuffle"]').forEach(b => b.classList.toggle('on', S.shuffle));
+  $$('[data-act="shuffle"]').forEach(b => { b.classList.toggle('on', S.shuffle); b.setAttribute('aria-pressed', S.shuffle ? 'true' : 'false'); b.setAttribute('aria-label', 'シャッフル：' + (S.shuffle ? 'オン' : 'オフ')); b.title = 'シャッフル：' + (S.shuffle ? 'オン' : 'オフ'); });
   $$('[data-act="repeat"]').forEach(b => {
     b.classList.toggle('on', S.repeat !== 'off'); b.replaceChildren(icon(S.repeat === 'one' ? 'repeat1' : 'repeat'));
     b.setAttribute('aria-label', 'リピート：' + (S.repeat === 'off' ? 'オフ' : S.repeat === 'all' ? '全曲' : '1曲'));
