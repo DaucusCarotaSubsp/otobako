@@ -1086,7 +1086,23 @@ function newDb() {
   fileHandle = null; D.name = 'otobako.sqlite'; D.dirty = false; D.isStartup = false; D.src = null; D.lean = false; D.libid = null; clearTimeout(D.timer);
   resetSession(); updateDbUi();
 }
+async function partInfo(file) {
+  try {
+    const rd = new SqliteReader(file); await rd.init(); const tabs = await rd.tables(); if (!tabs.meta) return null;
+    const m = {}; for await (const c of rd.walk(tabs.meta.root)) { const v = (await rd.record(c)).vals; m[v[0]] = v[1]; }
+    if (!m.export_id || !(+m.parts > 1)) return null;
+    return { id: m.export_id, part: +m.part, parts: +m.parts };
+  } catch (e) { return null; }
+}
+async function loadMany(files, handle) {
+  files = [...files].sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
+  if (files.length === 1) return loadDbFile(files[0], handle);
+  const infos = await Promise.all(files.map(partInfo));
+  if (!infos.every(Boolean)) { toast('複数のファイルを選ぶときは、分割して書き出したファイルだけを選んでください。', 5000); return; }
+  for (const f of files) await loadDbFile(f, null);
+}
 async function loadDbFile(file, handle, startup) {
+  if (!startup) { const pi = await partInfo(file); if (pi) { await leanLoad(file, pi); try { const done = JSON.parse((q("SELECT value FROM meta WHERE key = 'parts_done'")[0] || {}).value || '[]'); toast(done.length >= pi.parts ? `分割ファイルを全部（${pi.parts}個）取り込みました。` : `分割ファイル ${done.length}/${pi.parts} 個を取り込みました。残りのファイルも「開く」から選ぶと、同じライブラリに追加されます（まとめて選べます）。`, 8000); } catch (e) {} return; } }
   if (!startup && file.size >= LEAN.ask) { const r = await leanOffer(file); if (r === 'cancel') return; if (r === 'lean') return leanLoad(file); }
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -1150,7 +1166,7 @@ async function exportFull() {
   if (cur.length) parts.push(cur);
   const total = rows.reduce((a, b) => a + b.size, 0), mb = x => Math.round(x / 1048576);
   if (parts.length > 1 && !confirm(`音声が合計${mb(total)} MBあり、1つのファイルにはメモリの都合で収まりません。\n${parts.length}個のファイル（各約${mb(LIMIT)} MB以下）に分けて書き出します。続けますか？\n（それぞれが、その曲たちを含む完全なライブラリとして開けます）`)) return;
-  const base = D.name.replace(/\.(sqlite3?|db)$/i, ''), tick = () => new Promise(r => setTimeout(r, 0));
+  const base = D.name.replace(/\.(sqlite3?|db)$/i, ''), tick = () => new Promise(r => setTimeout(r, 0)), xid = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   IMP.abort = false; IMP.finished = false; $('#impCancel').textContent = '中止'; opMark('音声つきの書き出し'); let done = 0, doneB = 0, missing = 0;
   try {
     for (let pi = 0; pi < parts.length; pi++) {
@@ -1159,6 +1175,7 @@ async function exportFull() {
         nd.run(SCHEMA);
         const cp = (table, sql) => { const l = q(sql); if (!l.length) return; const cols = Object.keys(l[0]), st = nd.prepare(`INSERT OR REPLACE INTO ${table}(${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`); try { nd.run('BEGIN'); for (const r of l) st.run(cols.map(c => r[c])); nd.run('COMMIT'); } finally { st.free(); } };
         cp('meta', "SELECT key, value FROM meta WHERE key NOT IN ('audio_store', 'libid')");
+        nd.run("INSERT OR REPLACE INTO meta(key, value) VALUES ('export_id', ?), ('part', ?), ('parts', ?)", [xid, String(pi + 1), String(parts.length)]);
         cp('covers', `SELECT * FROM covers WHERE id IN (SELECT cover_id FROM tracks WHERE id IN (${inl}))`);
         cp('tracks', `SELECT * FROM tracks WHERE id IN (${inl})`);
         cp('playlists', 'SELECT * FROM playlists');
@@ -1185,7 +1202,7 @@ async function exportFull() {
     toast(IMP.abort ? '書き出しを中止しました。' : '書き出せませんでした（' + ((e && (e.name || e.message)) || '不明') + '）。曲数が多いとメモリ不足になります。', 7000);
   }
 }
-window.__exp = { exportFull, get D() { return D; }, auPut: (...a) => auPut(...a), run: (...a) => run(...a), q: (...a) => q(...a) };
+window.__exp = { exportFull, get D() { return D; }, auPut: (...a) => auPut(...a), auHas: id => auHas(D.libid, id), run: (...a) => run(...a), q: (...a) => q(...a) };
 function markDirty() {
   D.dirty = true; D.ver++; updateDbUi(); scheduleCopy();
   if (fileHandle) { clearTimeout(D.timer); D.timer = setTimeout(() => saveDb(true), 2500); }
@@ -1271,7 +1288,7 @@ function guard(btn, fn) {
 }
 async function pickDb() {
   if (window.showOpenFilePicker) {
-    try { const [fh] = await showOpenFilePicker({ multiple: false, types: [{ description: 'SQLite データベース', accept: { 'application/vnd.sqlite3': ['.sqlite', '.sqlite3', '.db'] } }] }); await loadDbFile(await fh.getFile(), fh); return; }
+    try { const fhs = await showOpenFilePicker({ multiple: true, types: [{ description: 'SQLite データベース', accept: { 'application/vnd.sqlite3': ['.sqlite', '.sqlite3', '.db'] } }] }); await loadMany(await Promise.all(fhs.map(f => f.getFile())), fhs.length === 1 ? fhs[0] : null); return; }
     catch (e) { if (e && e.name === 'AbortError') return; }
   }
   $('#dbIn').click();
@@ -2097,7 +2114,8 @@ $('#btnDbSave').addEventListener('click', () => saveDb(false));
 $('#dbAuto').addEventListener('change', async e => { if (e.target.checked) { D.starting = true; updateDbUi(); const ok = await enableStartup(); D.starting = false; if (!ok) e.target.checked = false; } else await disableStartup(); updateDbUi(); });
 $('#btnResume').addEventListener('click', e => guard(e.currentTarget, resumeStartup));
 $('#btnForget').addEventListener('click', disableStartup);
-$('#dbIn').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) guard($('#btnDbOpen'), () => loadDbFile(f, null)); });
+$('#dbIn').setAttribute('multiple', '');
+$('#dbIn').addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) guard($('#btnDbOpen'), () => loadMany(fs, null)); });
 document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveDb(false); } });
 window.addEventListener('beforeunload', e => { if (D.dirty && !(D.isStartup && !fileHandle && D.copyVer === D.ver)) { e.preventDefault(); e.returnValue = ''; } });
 $('#fileIn').addEventListener('change', async e => { const f = [...e.target.files]; e.target.value = ''; await importFiles(f); });
@@ -2331,15 +2349,16 @@ async function leanId(file) {
   const d = new TextEncoder().encode(`${file.name}|${file.size}|${file.lastModified}`), h = new Uint8Array(await crypto.subtle.digest('SHA-1', d));
   return Array.from(h.subarray(0, 10), x => x.toString(16).padStart(2, '0')).join('');
 }
-async function leanLoad(file) {
-  const old = DB; let nd = null, stage = '開始'; const failed = []; IMP.abort = false; IMP.finished = false; $('#impCancel').textContent = '中止';
+async function leanLoad(file, pi) {
+  const old = DB; let merge = false; let nd = null, stage = '開始'; const failed = []; IMP.abort = false; IMP.finished = false; $('#impCancel').textContent = '中止';
   const tick = () => new Promise(r => setTimeout(r, 0));
   try {
     impShow('大容量ライブラリを取り込み中', 0, '構造を確認しています…'); opMark('大容量ライブラリの取り込み'); stage = '構造の確認';
     const rd = new SqliteReader(file); await rd.init(); const tabs = await rd.tables();
     if (!tabs.tracks || !tabs.audio || !tabs.covers) throw new Error('Otobakoのライブラリではありません');
-    const libid = await leanId(file);
-    nd = new SQL.Database(); DB = nd; openMemory(nd); DB.run('PRAGMA foreign_keys = OFF');
+    merge = !!(pi && D.lean && D.libid && (q("SELECT value FROM meta WHERE key = 'export_id'")[0] || {}).value === pi.id);
+    const libid = merge ? D.libid : await leanId(file);
+    if (merge) DB.run('PRAGMA foreign_keys = OFF'); else { nd = new SQL.Database(); DB = nd; openMemory(nd); DB.run('PRAGMA foreign_keys = OFF'); }
     // columns are matched by NAME: older libraries have a different column order (e.g. bpm added at the end by ALTER TABLE)
     const copy = async (name, pk) => {
       if (!tabs[name]) return; const info = q(`PRAGMA table_info(${name})`), tcols = info.map(c => c.name), sc = sqlColNames(tabs[name].sql), pkName = pk >= 0 ? tcols[pk] : null; let n = 0; run('BEGIN');
@@ -2360,6 +2379,7 @@ async function leanLoad(file) {
     };
     stage = '曲の情報（ジャケット）'; await copy('covers', 0); stage = '曲の情報（曲）'; await copy('tracks', 0); stage = '曲の情報（プレイリスト）'; await copy('playlists', 0); await copy('playlist_tracks', -1); DB.run('PRAGMA foreign_keys = ON');
     run("INSERT OR REPLACE INTO meta(key, value) VALUES ('audio_store', 'idb'), ('libid', ?)", [libid]);
+    if (pi) { let done = []; try { done = JSON.parse((q("SELECT value FROM meta WHERE key = 'parts_done'")[0] || {}).value || '[]'); } catch (e) {} if (!merge) done = []; if (!done.includes(pi.part)) done.push(pi.part); run("INSERT OR REPLACE INTO meta(key, value) VALUES ('export_id', ?), ('parts', ?), ('parts_done', ?)", [pi.id, String(pi.parts), JSON.stringify(done)]); }
     const tot = q('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS s FROM tracks')[0]; let done = 0, doneB = 0, skipped = 0, fails = 0;
     for await (const c of rd.walk(tabs.audio.root)) {
       if (IMP.abort) throw new Error('中止しました');
@@ -2374,8 +2394,9 @@ async function leanLoad(file) {
       done++; doneB += tr.size || 0; if (done % 4 === 0) await tick();
     }
     let missing = 0; for (const t of q('SELECT id FROM tracks')) if (!(await auHas(libid, t.id))) missing++;
-    if (old && old !== nd) old.close();
-    D.lean = true; D.libid = libid; fileHandle = null; D.name = file.name; D.dirty = false; D.src = null; clearTimeout(D.timer);
+    if (old && old !== nd && !merge) old.close();
+    DB.run('PRAGMA foreign_keys = ON');
+    D.lean = true; D.libid = libid; fileHandle = null; D.name = merge ? D.name : (pi ? file.name.replace(/-\d+of\d+(?=\.\w+$)/, '') : file.name); D.dirty = false; D.src = null; clearTimeout(D.timer);
     await kv('readwrite', s => s.put({ name: D.name, blob: new Blob([exportDb()], { type: 'application/vnd.sqlite3' }) }, 'startup')); D.copyVer = D.ver; D.isStartup = true; D.pending = null;
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
     resetSession(); updateDbUi(); impShow('', 100, ''); $('#imp').hidden = true;
