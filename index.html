@@ -1712,6 +1712,22 @@ function mediaSession(t) {
   } catch (e) {}
 }
 const dur = () => (isFinite(audio.duration) && audio.duration > 0) ? audio.duration : ((curTrack() || {}).duration || 0);
+function msPos() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.playbackState = audio.paused ? 'paused' : 'playing';
+    const d = dur(); if (d > 0 && isFinite(d) && navigator.mediaSession.setPositionState)
+      navigator.mediaSession.setPositionState({ duration: d, playbackRate: audio.playbackRate || 1, position: Math.max(0, Math.min(d, audio.currentTime || 0)) });
+  } catch (e) {}
+}
+(function msInit() {
+  if (!('mediaSession' in navigator)) return;
+  const ms = navigator.mediaSession, set = (a, f) => { try { ms.setActionHandler(a, f); } catch (e) {} };
+  set('seekto', e => { if (e && typeof e.seekTime === 'number') { try { if (e.fastSeek && audio.fastSeek && !e.isFastSeek === false) audio.fastSeek(e.seekTime); else audio.currentTime = e.seekTime; } catch (er) {} sync(); msPos(); } });
+  set('stop', () => { audio.pause(); try { audio.currentTime = 0; } catch (e) {} msPos(); });
+  ['play', 'pause', 'seeked', 'ratechange', 'durationchange', 'loadedmetadata', 'ended'].forEach(ev => audio.addEventListener(ev, msPos));
+  setInterval(() => { if (!audio.paused) msPos(); }, 5000);   // keep the head unit's progress bar in step
+})();
 function paintSeek(v) { $('#seek').style.setProperty('--p', (v / 10) + '%'); }
 function sync() {
   const d = dur(), c = audio.currentTime || 0;
