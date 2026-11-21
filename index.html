@@ -100,7 +100,7 @@ h1,h2,h3,p{margin:0}
 .mh .sp{flex:1}
 .sel{height:34px;border-radius:9px;border:1px solid var(--line);background:var(--raise);padding:0 10px;font-size:13px}
 .list{padding:0 10px 24px}
-.lh,.row{display:grid;grid-template-columns:36px minmax(0,3fr) minmax(0,2fr) 52px 72px;align-items:center;gap:12px;padding:0 12px}
+.lh,.row{display:grid;grid-template-columns:36px minmax(0,3fr) minmax(0,2fr) 52px 104px;align-items:center;gap:12px;padding:0 12px}
 .lh{position:sticky;top:0;z-index:2;height:34px;background:var(--panel);border-bottom:1px solid var(--line);color:var(--faint);font-size:11px;letter-spacing:.08em;margin-bottom:6px}
 .lh span:nth-child(1){text-align:center}.lh span:nth-child(4){text-align:right}
 .row{height:58px;border-radius:10px;cursor:pointer}
@@ -123,9 +123,13 @@ body.paused .eq i{animation-play-state:paused}
 .row .ar,.row .al{color:var(--dim);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .du{font:400 12px var(--mono);color:var(--faint);text-align:right;font-variant-numeric:tabular-nums}
 .row .ed,.row .pa{opacity:0;width:32px;height:32px}
+@media (max-width:700px){.nav>button:not(.plnav){padding-left:8px;padding-right:8px;gap:4px;white-space:nowrap;font-size:13px}.nav>button:not(.plnav) .ic{display:none}.nav>button:not(.plnav) span{white-space:nowrap}}
+.row .fv{width:32px;height:32px;opacity:.3}.row:hover .fv,.row .fv:focus-visible{opacity:.9}.row .fv.on{opacity:1}
+.icon-btn.fv.on,.icon-btn[data-act="fav"].on{background:transparent;color:var(--accent)}
+.icon-btn.fv.on:hover,.icon-btn[data-act="fav"].on:hover{background:var(--hover);color:var(--accent);filter:none}
 .ra{display:flex;justify-content:flex-end}
 .row:hover .ed,.row:focus-within .ed,.row .ed:focus-visible,.row:hover .pa,.row:focus-within .pa,.row .pa:focus-visible{opacity:1}
-@media (hover:none){.row .ed,.row .pa{opacity:.7}}
+@media (hover:none){.row .ed,.row .pa{opacity:.7}.row .fv{opacity:.45}.row .fv.on{opacity:1}}
 .chip{flex:none;font-size:10px;font-weight:700;letter-spacing:.04em;padding:1px 6px;border-radius:5px;border:1px solid var(--line);color:var(--faint)}
 .chip.hl{color:var(--accent);border-color:var(--accent)}
 
@@ -448,10 +452,10 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
   .dbbox{padding:10px;gap:6px}
   .main{grid-column:1;grid-row:2;border-radius:16px}
   .bar{grid-column:1;grid-row:3;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"info btns" "seek seek";gap:2px 8px;padding:8px 10px}
-  .volrow,[data-act="shuffle"].inbar,[data-act="repeat"].inbar{display:none}
+  .volrow,[data-act="shuffle"].inbar,[data-act="repeat"].inbar,[data-act="fav"].inbar{display:none}
   .mh{padding:16px 16px 8px}.mh h1{font-size:24px}
   .lh{display:none}
-  .lh,.row{grid-template-columns:28px minmax(0,1fr) 44px 64px;gap:8px;padding:0 6px}
+  .lh,.row{grid-template-columns:28px minmax(0,1fr) 40px 96px;gap:6px;padding:0 6px}
   .row .al{display:none}
   .list{padding:0 4px 20px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr));padding:8px 16px 24px;gap:18px 14px}
@@ -503,6 +507,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <div class="np-meta">
           <h2 id="npTitle"></h2><p id="npArtist"></p><p id="npAlbum" class="hint"></p>
           <div class="np-opts">
+            <button class="icon-btn" type="button" data-act="fav" aria-label="お気に入り" aria-pressed="false"></button>
             <button class="icon-btn" type="button" data-act="shuffle" aria-label="シャッフル" data-i="shuffle"></button>
             <button class="icon-btn" type="button" data-act="repeat" aria-label="リピート" data-i="repeat"></button>
             <button class="spdbtn" type="button" aria-label="再生速度" aria-haspopup="dialog">1.00x</button>
@@ -647,6 +652,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
       <span class="tx"><b id="barTitle">再生していません</b><small id="barSub">曲を選んでください</small></span>
     </button>
     <div class="btns">
+      <button class="icon-btn inbar" type="button" data-act="fav" aria-label="お気に入り" aria-pressed="false"></button>
       <button class="icon-btn inbar" type="button" data-act="shuffle" aria-label="シャッフル" data-i="shuffle"></button>
       <button class="icon-btn" type="button" id="btnPrev" aria-label="前の曲" data-i="prev"></button>
       <button class="play" type="button" id="btnPlay" aria-label="再生"></button>
@@ -943,6 +949,8 @@ const h = (tag, props, ...kids) => {
 
 /* ---------- icons ---------- */
 const ICONS = {
+  heart:'<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/>',
+  heartf:'<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z" fill="currentColor"/>',
   play:'<polygon points="7 4 20 12 7 20 7 4" fill="currentColor"/>',
   pause:'<rect x="6" y="4" width="4.5" height="16" rx="1" fill="currentColor"/><rect x="13.5" y="4" width="4.5" height="16" rx="1" fill="currentColor"/>',
   prev:'<polygon points="19 20 9 12 19 4 19 20" fill="currentColor"/><line x1="5" y1="19" x2="5" y2="5"/>',
@@ -982,7 +990,8 @@ function hydrateIcons(root = document) {
 /* ---------- state ---------- */
 const S = { tracks: [], view: 'songs', detail: null, q: '', sort: 'added', cur: null, queue: [], base: [], qi: -1,
             shuffle: false, repeat: 'off', npOpen: false, lyr: null, persist: false };
-S.playlists = []; S.plId = null; S.plRename = false; S.playSrc = null;
+S.playlists = []; S.plId = null; S.plRename = false; S.playSrc = null; S.favs = new Set(); S.favOnly = false;
+try { S.favOnly = localStorage.getItem('otobako-favonly') === '1'; } catch (e) {}
 const audio = $('#audio');
 const byId = id => S.tracks.find(t => t.id === id);
 const curTrack = () => S.cur ? byId(S.cur) : null;
@@ -1023,6 +1032,7 @@ CREATE TABLE IF NOT EXISTS audio(track_id INTEGER PRIMARY KEY REFERENCES tracks(
 CREATE TABLE IF NOT EXISTS playlists(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS playlist_tracks(playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, pos INTEGER NOT NULL, PRIMARY KEY(playlist_id, track_id));
 CREATE INDEX IF NOT EXISTS playlist_pos ON playlist_tracks(playlist_id, pos);
+CREATE TABLE IF NOT EXISTS favorites(track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE, added INTEGER NOT NULL DEFAULT 0);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('app', 'Otobako'), ('schema', '2');
 `;
 const SQLITE_MAGIC = 'SQLite format 3\u0000';
@@ -1036,6 +1046,7 @@ const run = (sql, p) => DB.run(sql, p || []);
 const lastId = () => DB.exec('SELECT last_insert_rowid()')[0].values[0][0];
 function loadTracks() {
   S.tracks = q('SELECT id, title, artist, album, album_artist AS albumArtist, year, track_no AS track, genre, duration, file_name AS fileName, mime, size, lrc, cover_id AS coverId, bpm, added, disc, trans FROM tracks');
+  try { S.favs = new Set(q('SELECT track_id FROM favorites').map(r => r.track_id)); } catch (e) { S.favs = new Set(); }
   loadPlaylists();
 }
 function pruneCovers() { run('DELETE FROM covers WHERE id NOT IN (SELECT cover_id FROM tracks WHERE cover_id IS NOT NULL)'); }
@@ -1180,6 +1191,7 @@ async function exportFull() {
         cp('tracks', `SELECT * FROM tracks WHERE id IN (${inl})`);
         cp('playlists', 'SELECT * FROM playlists');
         cp('playlist_tracks', `SELECT * FROM playlist_tracks WHERE track_id IN (${inl})`);
+        cp('favorites', `SELECT * FROM favorites WHERE track_id IN (${inl})`);
         const ins = nd.prepare('INSERT OR REPLACE INTO audio(track_id, data) VALUES (?, ?)');
         try {
           for (const id of ids) {
@@ -1791,6 +1803,7 @@ function scrollToLine(i, smooth) {
 
 /* ---------- bar / now playing ---------- */
 function updateBar() {
+  try { favUi(); } catch (e) {}
   const t = curTrack();
   $('#barCover').replaceChildren(coverEl(t, 's48', '♪'));
   $('#barTitle').textContent = t ? t.title : '再生していません';
@@ -1810,8 +1823,37 @@ function setNp(open) {
 }
 
 /* ---------- library views ---------- */
+function toggleFav(id) {
+  if (id == null || !byId(id)) return;
+  if (S.favs.has(id)) { run('DELETE FROM favorites WHERE track_id = ?', [id]); S.favs.delete(id); toast('お気に入りから外しました', 1200); }
+  else { run('INSERT OR REPLACE INTO favorites(track_id, added) VALUES (?, ?)', [id, Date.now()]); S.favs.add(id); toast('お気に入りに追加しました', 1200); }
+  markDirty(); favUi(); renderNav(); if (S.favOnly || S.view === 'favs') render(true);
+}
+function favBtn(id) {
+  const on = S.favs.has(id), t = byId(id);
+  return h('button', { class: 'icon-btn fv' + (on ? ' on' : ''), type: 'button', 'data-favbtn': String(id), 'aria-pressed': on ? 'true' : 'false', 'aria-label': (t ? t.title : '') + 'をお気に入りに' + (on ? '登録済み' : '追加'), onclick: e => { e.stopPropagation(); toggleFav(id); } }, icon(on ? 'heartf' : 'heart', 16));
+}
+function favUi() {
+  $$('[data-favbtn]').forEach(b => { const on = S.favs.has(+b.dataset.favbtn); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.replaceChildren(icon(on ? 'heartf' : 'heart', 16)); });
+  $$('[data-act="fav"]').forEach(b => { const on = S.cur != null && S.favs.has(S.cur); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.setAttribute('aria-label', on ? 'お気に入りから外す' : 'お気に入りに追加'); b.replaceChildren(icon(on ? 'heartf' : 'heart', 20)); });
+}
+function favModeBtn() {
+  return h('button', { class: 'btn sm' + (S.favOnly ? ' on' : ''), type: 'button', 'aria-pressed': S.favOnly ? 'true' : 'false', title: 'オンの間は、お気に入りの曲だけを表示・再生します',
+    onclick: () => { S.favOnly = !S.favOnly; try { localStorage.setItem('otobako-favonly', S.favOnly ? '1' : '0'); } catch (e) {} toast(S.favOnly ? 'お気に入りの曲だけ表示・再生します' : 'すべての曲を表示します', 1800); render(true); } }, icon(S.favOnly ? 'heartf' : 'heart', 15), 'お気に入りのみ');
+}
+function renderFavs(main) {
+  const l = visibleTracks();
+  main.append(h('header', { class: 'mh' }, h('h1', { text: 'お気に入り' }), h('span', { class: 'cnt', text: `${l.length}曲` }), h('span', { class: 'sp' }), sortSelect()));
+  if (!l.length) { main.append(h('div', { class: 'empty' }, h('h2', { text: S.q ? '見つかりません' : 'お気に入りはまだありません' }), h('p', { text: S.q ? `「${S.q}」に一致する項目はありません。` : '曲の ♡ を押すと、ここに集まります。' }))); return; }
+  main.append(h('div', { class: 'acts', style: 'padding:0 24px 8px;display:flex;gap:8px;flex-wrap:wrap' },
+    h('button', { class: 'btn primary', type: 'button', onclick: () => playFrom(l.map(t => t.id), l[0].id) }, icon('play', 16), '再生'),
+    h('button', { class: 'btn' + (S.shuffle ? ' on' : ''), 'data-shufbtn': '1', type: 'button', 'aria-pressed': S.shuffle ? 'true' : 'false', onclick: () => { if (S.shuffle) { toggleShuffle(); return; } S.shuffle = true; updateModes(); toast('シャッフル：オン', 1200); const r = l[Math.floor(Math.random() * l.length)]; playFrom(l.map(t => t.id), r.id); } }, icon('shuffle', 16), 'シャッフル')));
+  main.append(trackList(l, false));
+}
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-act="fav"]'); if (b && S.cur != null) toggleFav(S.cur); });
 function visibleTracks() {
   let list = S.tracks;
+  if (S.favOnly || S.view === 'favs') list = list.filter(t => S.favs.has(t.id));
   if (S.detail) list = S.detail.type === 'album' ? list.filter(t => albumKey(t) === S.detail.key) : list.filter(t => artistOf(t) === S.detail.key);
   const q = S.q.trim().toLowerCase();
   if (q) list = list.filter(t => (t.title + ' ' + t.artist + ' ' + t.album).toLowerCase().includes(q));
@@ -1840,6 +1882,7 @@ function trackRow(t, i, ids, numTrack) {
     h('div', { class: 'al', text: albumOf(t) }),
     h('div', { class: 'du', text: fmt(t.duration) }),
     h('div', { class: 'ra' },
+      favBtn(t.id),
       h('button', { class: 'icon-btn pa', type: 'button', 'aria-label': `${t.title}をプレイリストに追加`, onclick: e => { e.stopPropagation(); openPlMenu(e.currentTarget, [t.id]); } }, icon('plus', 16)),
       h('button', { class: 'icon-btn ed', type: 'button', 'aria-label': `${t.title}の情報を編集`, onclick: e => { e.stopPropagation(); openEdit(t.id); } }, icon('edit', 16))));
   const go = () => playFrom(ids, t.id);
@@ -1877,15 +1920,16 @@ function render(keep) {
   renderNav();
   if (!S.tracks.length) main.append(emptyLibrary());
   else if (S.view === 'playlist') renderPlaylist(main);
+  else if (S.view === 'favs') renderFavs(main);
   else if (S.detail) renderDetail(main);
   else if (S.view === 'songs') {
     const l = visibleTracks();
-    main.append(h('header', { class: 'mh' }, h('h1', { text: '曲' }), h('span', { class: 'cnt', text: `${l.length}曲` }), h('span', { class: 'sp' }), sortSelect()));
+    main.append(h('header', { class: 'mh' }, h('h1', { text: '曲' }), h('span', { class: 'cnt', text: `${l.length}曲` }), h('span', { class: 'sp' }), favModeBtn(), sortSelect()));
     main.append(l.length ? trackList(l, false) : noMatch());
   } else if (S.view === 'albums') {
     const g = groups(visibleTracks(), albumKey);
     const arr = [...g.entries()].map(([k, l]) => ({ k, l, name: albumOf(l[0]), artist: l[0].albumArtist || artistOf(l[0]) })).sort((a, b) => coll.compare(a.name, b.name));
-    main.append(h('header', { class: 'mh' }, h('h1', { text: 'アルバム' }), h('span', { class: 'cnt', text: `${arr.length}枚` })));
+    main.append(h('header', { class: 'mh' }, h('h1', { text: 'アルバム' }), h('span', { class: 'cnt', text: `${arr.length}枚` }), h('span', { class: 'sp' }), favModeBtn()));
     main.append(arr.length ? h('div', { class: 'grid' }, arr.map(a => {
       const first = a.l.slice().sort((x, y) => (x.track || 999) - (y.track || 999));
       const cover = coverEl(first.find(t => t.coverId) || first[0], '');
@@ -1895,7 +1939,7 @@ function render(keep) {
   } else {
     const g = groups(visibleTracks(), artistOf);
     const arr = [...g.entries()].sort((a, b) => coll.compare(a[0], b[0]));
-    main.append(h('header', { class: 'mh' }, h('h1', { text: 'アーティスト' }), h('span', { class: 'cnt', text: `${arr.length}組` })));
+    main.append(h('header', { class: 'mh' }, h('h1', { text: 'アーティスト' }), h('span', { class: 'cnt', text: `${arr.length}組` }), h('span', { class: 'sp' }), favModeBtn()));
     main.append(arr.length ? h('div', { class: 'list' }, arr.map(([name, l]) => {
       const albumsN = new Set(l.map(albumKey)).size;
       return h('button', { class: 'arow', type: 'button', onclick: () => openDetail('artist', name) },
@@ -1905,7 +1949,7 @@ function render(keep) {
   main.scrollTop = keep ? st : 0;
   renderStats();
 }
-const noMatch = () => h('div', { class: 'empty' }, h('h2', { text: '見つかりません' }), h('p', { text: S.q ? `「${S.q}」に一致する項目はありません。` : '該当する項目はありません。' }));
+const noMatch = () => h('div', { class: 'empty' }, h('h2', { text: '見つかりません' }), h('p', { text: (S.favOnly && !S.q) ? 'お気に入りの曲がありません。曲の ♡ を押して追加するか、「お気に入りのみ」をオフにしてください。' : S.q ? `「${S.q}」に一致する項目はありません。` : '該当する項目はありません。' }));
 function renderDetail(main) {
   const l = visibleTracks(), all = S.tracks.filter(t => S.detail.type === 'album' ? albumKey(t) === S.detail.key : artistOf(t) === S.detail.key);
   const isAlbum = S.detail.type === 'album';
@@ -1915,13 +1959,13 @@ function renderDetail(main) {
     h('div', { class: 'tx' }, h('h1', { text: title }), h('p', { text: sub }), h('p', { class: 'hint', text: `${all.length}曲 · ${Math.round(totalDur(all) / 60)}分` }),
       h('div', { class: 'acts' },
         h('button', { class: 'btn primary', type: 'button', onclick: () => { if (l.length) playFrom(l.map(t => t.id), l[0].id); } }, icon('play', 16), '再生'),
-        h('button', { class: 'btn' + (S.shuffle ? ' on' : ''), 'data-shufbtn': '1', type: 'button', 'aria-pressed': S.shuffle ? 'true' : 'false', onclick: () => { if (S.shuffle) { toggleShuffle(); return; } if (!l.length) return; S.shuffle = true; updateModes(); toast('シャッフル：オン', 1200); const r = l[Math.floor(Math.random() * l.length)]; playFrom(l.map(t => t.id), r.id); } }, icon('shuffle', 16), 'シャッフル'))));
+        h('button', { class: 'btn' + (S.shuffle ? ' on' : ''), 'data-shufbtn': '1', type: 'button', 'aria-pressed': S.shuffle ? 'true' : 'false', onclick: () => { if (S.shuffle) { toggleShuffle(); return; } if (!l.length) return; S.shuffle = true; updateModes(); toast('シャッフル：オン', 1200); const r = l[Math.floor(Math.random() * l.length)]; playFrom(l.map(t => t.id), r.id); } }, icon('shuffle', 16), 'シャッフル'), favModeBtn())));
   main.append(h('button', { class: 'back', type: 'button', onclick: () => { S.detail = null; render(); } }, icon('back', 18), S.view === 'albums' ? 'アルバム' : 'アーティスト'), head, l.length ? trackList(l, isAlbum) : noMatch());
 }
 function openDetail(type, key) { S.detail = { type, key }; setNp(false); render(); }
 function renderNav() {
   const nav = $('#nav'); nav.replaceChildren();
-  [['songs', '曲', 'songs', S.tracks.length], ['albums', 'アルバム', 'albums', new Set(S.tracks.map(albumKey)).size], ['artists', 'アーティスト', 'artists', new Set(S.tracks.map(artistOf)).size]]
+  [['songs', '曲', 'songs', S.tracks.length], ['albums', 'アルバム', 'albums', new Set(S.tracks.map(albumKey)).size], ['artists', 'アーティスト', 'artists', new Set(S.tracks.map(artistOf)).size], ['favs', 'お気に入り', 'heartf', S.favs.size]]
     .forEach(([v, label, ic, n]) => nav.append(h('button', { type: 'button', 'aria-current': S.view === v ? 'page' : null, onclick: () => { S.view = v; S.detail = null; S.plId = null; setNp(false); render(); } },
       icon(ic, 18), h('span', { text: label }), h('span', { class: 'n', text: String(n) }))));
   nav.append(h('div', { class: 'navh' }, h('span', { text: 'プレイリスト' }), h('button', { type: 'button', 'aria-label': '新しいプレイリスト', onclick: newPlaylistUi }, icon('plus', 16))));
@@ -2393,7 +2437,7 @@ async function leanLoad(file, pi) {
         run('COMMIT');
       } catch (e) { try { run('ROLLBACK'); } catch (e2) {} throw e; }
     };
-    stage = '曲の情報（ジャケット）'; await copy('covers', 0); stage = '曲の情報（曲）'; await copy('tracks', 0); stage = '曲の情報（プレイリスト）'; await copy('playlists', 0); await copy('playlist_tracks', -1); DB.run('PRAGMA foreign_keys = ON');
+    stage = '曲の情報（ジャケット）'; await copy('covers', 0); stage = '曲の情報（曲）'; await copy('tracks', 0); stage = '曲の情報（プレイリスト）'; await copy('playlists', 0); await copy('playlist_tracks', -1); stage = '曲の情報（お気に入り）'; await copy('favorites', 0); DB.run('PRAGMA foreign_keys = ON');
     run("INSERT OR REPLACE INTO meta(key, value) VALUES ('audio_store', 'idb'), ('libid', ?)", [libid]);
     if (pi) { let done = []; try { done = JSON.parse((q("SELECT value FROM meta WHERE key = 'parts_done'")[0] || {}).value || '[]'); } catch (e) {} if (!merge) done = []; if (!done.includes(pi.part)) done.push(pi.part); run("INSERT OR REPLACE INTO meta(key, value) VALUES ('export_id', ?), ('parts', ?), ('parts_done', ?)", [pi.id, String(pi.parts), JSON.stringify(done)]); }
     const tot = q('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS s FROM tracks')[0]; let done = 0, doneB = 0, skipped = 0, fails = 0;
