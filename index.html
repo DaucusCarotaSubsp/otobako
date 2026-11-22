@@ -484,6 +484,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
     <div class="dbbox" id="dbbox">
       <div class="dbname"><span data-i="db" data-s="17"></span><b id="dbName">otobako.sqlite</b></div>
       <div class="dbstat" id="dbStat" data-state="ok">空のライブラリ</div>
+      <label class="dbauto" for="dbAutoRes"><input type="checkbox" id="dbAutoRes"><span>割り込み（車のバックなど）で止まったら、小さな音で自動的に再開する</span></label>
       <label class="dbauto" for="dbAuto"><input type="checkbox" id="dbAuto"><span id="dbAutoTx">次回から起動時にこのライブラリを開く</span></label>
       <div class="dbresume" id="dbResume" hidden><span id="dbResumeName"></span><div class="dbbtns"><button class="btn sm primary" id="btnResume" type="button">開く</button><button class="btn sm ghost" id="btnForget" type="button">解除</button></div></div>
       <div class="dbbtns"><button class="btn sm" id="btnDbOpen" type="button">開く</button><button class="btn sm" id="btnDbNew" type="button">新規</button><button class="btn sm" id="btnDbSave" type="button">保存</button></div>
@@ -993,6 +994,41 @@ const S = { tracks: [], view: 'songs', detail: null, q: '', sort: 'added', cur: 
 S.playlists = []; S.plId = null; S.plRename = false; S.playSrc = null; S.favs = new Set(); S.favOnly = false;
 try { S.favOnly = localStorage.getItem('otobako-favonly') === '1'; } catch (e) {}
 const audio = $('#audio');
+/* ---------- resume after an interruption ---------- */
+const AR = { want: false, timer: 0, t0: 0, on: true, savedG: null, savedV: null, fade: 0 };
+try { AR.on = localStorage.getItem('otobako-autoresume') !== '0'; } catch (e) {}
+(function () {
+  const rawPause = audio.pause.bind(audio);
+  audio.pause = function () { AR.want = false; clearTimeout(AR.timer); return rawPause(); };   // every deliberate pause in the app goes through here
+  audio.addEventListener('play', () => { AR.want = true; });
+  audio.addEventListener('ended', () => { AR.want = false; });
+  audio.addEventListener('pause', () => { if (!AR.want || audio.ended || !AR.on) return; AR.t0 = Date.now(); arTry(700); });   // a pause nobody asked for = interruption
+  const gainNode = () => (typeof VC !== 'undefined' && VC.sg && VC.ctx && VC.ctx.state === 'running') ? VC.sg.gain : null;
+  function arDuck() {
+    clearTimeout(AR.fade); const g = gainNode();
+    if (g) { if (AR.savedG === null) AR.savedG = g.value; g.cancelScheduledValues(0); g.setValueAtTime(AR.savedG * 0.25, VC.ctx.currentTime); }
+    else { if (AR.savedV === null) AR.savedV = audio.volume; audio.volume = AR.savedV * 0.25; }   // (iOS ignores element volume, other browsers honour it)
+  }
+  function arFade() {
+    const g = gainNode(), secs = 6;
+    if (g && AR.savedG !== null) { const t = VC.ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(AR.savedG, t + secs); }
+    else if (AR.savedV !== null) { const from = audio.volume, to = AR.savedV, t0 = Date.now(); const step = () => { const k = Math.min(1, (Date.now() - t0) / (secs * 1000)); audio.volume = from + (to - from) * k; if (k < 1) AR.fade = setTimeout(step, 200); }; step(); }
+    clearTimeout(AR.fade2); AR.fade2 = setTimeout(() => { AR.savedG = null; AR.savedV = null; }, secs * 1000 + 300);
+  }
+  function arTry(delay) {
+    clearTimeout(AR.timer);
+    AR.timer = setTimeout(async () => {
+      if (!AR.want || !audio.paused || !AR.on) return;
+      if (Date.now() - AR.t0 > 180000) { AR.want = false; return; }   // give up after 3 minutes
+      try { if (typeof VC !== 'undefined' && VC.ctx && VC.ctx.state !== 'running' && VC.ctx.state !== 'closed') await VC.ctx.resume(); } catch (e) {}
+      arDuck();
+      try { await audio.play(); arFade(); } catch (e) { arTry(1000); }
+    }, delay);
+  }
+  // the audio engine itself can be interrupted while the element keeps "playing" (silent): wake it up
+  setInterval(() => { try { if (AR.want && AR.on && !audio.paused && typeof VC !== 'undefined' && VC.ctx && (VC.ctx.state === 'interrupted' || VC.ctx.state === 'suspended')) VC.ctx.resume().catch(() => {}); } catch (e) {} }, 2000);
+  window.__ar = AR;
+})();
 const byId = id => S.tracks.find(t => t.id === id);
 const curTrack = () => S.cur ? byId(S.cur) : null;
 const artistOf = t => t.artist || '不明なアーティスト';
@@ -2171,6 +2207,8 @@ $('#btnImport').addEventListener('click', () => $('#fileIn').click());
 $('#btnDbOpen').addEventListener('click', e => guard(e.currentTarget, pickDb));
 $('#btnDbNew').addEventListener('click', e => guard(e.currentTarget, newDb));
 $('#btnDbSave').addEventListener('click', () => saveDb(false));
+$('#dbAutoRes').checked = AR.on;
+$('#dbAutoRes').addEventListener('change', e => { AR.on = e.target.checked; try { localStorage.setItem('otobako-autoresume', AR.on ? '1' : '0'); } catch (er) {} });
 $('#dbAuto').addEventListener('change', async e => { if (e.target.checked) { D.starting = true; updateDbUi(); const ok = await enableStartup(); D.starting = false; if (!ok) e.target.checked = false; } else await disableStartup(); updateDbUi(); });
 $('#btnResume').addEventListener('click', e => guard(e.currentTarget, resumeStartup));
 $('#btnForget').addEventListener('click', disableStartup);
